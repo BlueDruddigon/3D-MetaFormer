@@ -2,61 +2,57 @@ from typing import Callable, Optional, Union, Sequence
 
 import torch
 import torch.nn as nn
-from timm.layers import to_ntuple, trunc_normal_
+from timm.layers import trunc_normal_, DropPath
 from torch.utils.checkpoint import checkpoint
 
-from models.components import VitBlock
-from utils.conv_utils import get_conv_layer
+from models.components import MLP, Attention, PatchEmbed
 
 
-class PatchEmbed(nn.Module):
+class VitBlock(nn.Module):
     def __init__(
       self,
-      img_size: int = 224,
-      patch_size: int = 16,
-      spatial_dims: int = 2,
-      in_chans: int = 3,
-      embed_dim: int = 768,
-      dropout_rate: float = 0.
+      dim: int,
+      num_heads: int,
+      qkv_bias: bool = True,
+      mlp_ratio: float = 4.,
+      act_layer: Callable = nn.GELU,
+      norm_layer: Callable = nn.LayerNorm,
+      attn_drop: float = 0.,
+      proj_drop: float = 0.,
+      drop_path: float = 0.,
     ) -> None:
-        """Patch Embedding with positional encodings based on spatial dimensions
+        """Vision Transformer Encoder Block
 
-        :param img_size: input image size, Default: 224
-        :param patch_size: patch size, Default: 16
-        :param spatial_dims: spatial dimensions, 2 for HW and 3 for DHW, Default: 2.
-        :param in_chans: input channels, Default: 3.
-        :param embed_dim: embedding dimension, Default: 768
-        :param dropout_rate: projection dropout rate, Default: 0.
+        :param dim:
+        :param num_heads: Number of attention heads
+        :param qkv_bias: Whether to add a bias to the Attention module, Default: True
+        :param mlp_ratio: The ratio of mlp dimensions, Default: 4.
+        :param act_layer: The activation function, Default: 'GELU'
+        :param norm_layer: The normalization layer, Default: 'LayerNorm'
+        :param attn_drop: The dropout for attention, Default: 0.
+        :param proj_drop: The dropout for projection, Default: 0.
+        :param drop_path: The Stochastic Depth decay ratio, Default: 0.
         """
-        super(PatchEmbed, self).__init__()
+        super().__init__()
         
-        self.img_size = to_ntuple(spatial_dims)(img_size)
-        self.patch_size = to_ntuple(spatial_dims)(patch_size)
-        self.num_patches = (img_size // patch_size) ** spatial_dims
-        self.patches_resolution = to_ntuple(spatial_dims)(img_size // patch_size)
-        self.spatial_dims = spatial_dims
+        self.attn = Attention(dim, num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=proj_drop)
+        self.attn_norm = norm_layer(dim)
         
-        # embeddings projection operator based on spatial_dims
-        self.proj = get_conv_layer(
-          spatial_dims, in_chans, embed_dim, kernel_size=self.patch_size, stride=self.patch_size
-        )
+        self.drop_path = DropPath(drop_path) if drop_path > 0 else nn.Identity()
         
-        # positional embeddings
-        self.pos_embed = nn.Parameter(torch.zeros(1, self.num_patches, embed_dim))
-        self.pos_drop = nn.Dropout(dropout_rate)
-        
-        trunc_normal_(self.pos_embed, std=0.02)  # init state for pos_embed
+        mlp_hidden_dim = int(mlp_ratio * dim)
+        self.ffn = MLP(dim, mlp_hidden_dim, act_layer=act_layer, dropout_rate=proj_drop)
+        self.ffn_norm = norm_layer(dim)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        :param x: input image tensor - tensor shape: (B, C, [D], H, W), where
-            B is batch size, C is channel dimension, and [D], H, W are spatial dimensions
-        :return: a tensor contains patches with additional positional embeddings
+        :param x: input feature map - tensor shape: (B, N, C), where
+            B is the batch size, N is the number of tokens, and C is the number of embedding dimensions
+        :return: encoded feature map - tensor shape: (B, N, C)
         """
-        assert x.size()[::-1][:self.spatial_dims] == self.img_size, "Input image size doesn't match model size"
-        x = self.proj(x).flatten(2).transpose(1, 2)
-        x += self.pos_embed
-        return self.pos_drop(x)
+        x += self.drop_path(self.attn(self.attn_norm(x)))
+        x += self.drop_path(self.ffn(self.ffn_norm(x)))
+        return x
 
 
 class VisionTransformer(nn.Module):
@@ -102,7 +98,7 @@ class VisionTransformer(nn.Module):
         :param use_checkpoint: whether to use checkpointing for fast training, Default: False
         :param backbone_only: whether to return the backbone only, Default: False
         """
-        super(VisionTransformer, self).__init__()
+        super().__init__()
         
         self.num_classes = num_classes
         self.num_features = self.embed_dim = embed_dim
@@ -116,8 +112,12 @@ class VisionTransformer(nn.Module):
           embed_dim=embed_dim,
           dropout_rate=proj_drop
         )
-        self.num_patches = self.patch_embed.num_patches
+        num_patches = self.patch_embed.num_patches
         self.input_resolution = self.patch_embed.patches_resolution
+        
+        # absolute position embeddings
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dim))
+        self.pos_drop = nn.Dropout(proj_drop)
         
         # Stochastic Depth
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]
@@ -150,6 +150,7 @@ class VisionTransformer(nn.Module):
                 )
         
         self.apply(self._init_weights)
+        trunc_normal_(self.pos_embed, std=.02)
     
     @staticmethod
     def _init_weights(m):
@@ -180,6 +181,8 @@ class VisionTransformer(nn.Module):
         :return: list of hidden states if save_state is True, else last hidden state only
         """
         x = self.patch_embed(x)
+        x += self.pos_embed  # positional encodings
+        x = self.pos_drop(x)
         # cls_token adding
         if self.classification:
             cls_token = self.cls_token.expand(x.shape[0], -1, -1)
