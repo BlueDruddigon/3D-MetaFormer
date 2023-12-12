@@ -17,6 +17,21 @@ def get_conv_layer(
   bias: bool = False,
   is_transposed: bool = False,
 ) -> Union[Conv.CONV, Conv.CONVTRANS]:
+    """get convolutional instance from varied spatial dimensions
+
+    :param spatial_dims: number of spatial dimensions - int
+    :param in_channels: number of input channels - int
+    :param out_channels: number of output channels - int
+    :param kernel_size: kernel sizes, Default: 3
+    :param stride: strides, Default: 1
+    :param padding: padding value, Default: None
+    :param output_padding: output padding values for ConvTranspose, Default: None
+    :param dilation: dilation, Default: 1
+    :param groups: number of groups, Default: 1
+    :param bias: whether to use bias, Default: False
+    :param is_transposed: whether to use transposed convolution, Default: False
+    :return: Conv instance - taken from MONAI
+    """
     if padding is None:
         padding = get_padding(kernel_size, stride)
     conv_type = Conv[Conv.CONVTRANS if is_transposed else Conv.CONV, spatial_dims]
@@ -54,6 +69,12 @@ def get_padding(
   kernel_size: Union[int, Sequence[int]],
   stride: Union[int, Sequence[int]],
 ) -> Union[int, Tuple[int, ...]]:
+    """calculate padding values from kernel sizes and strides
+
+    :param kernel_size: kernel sizes
+    :param stride: strides
+    :return: int or tuple of ints representing padding values
+    """
     kernel_size = np.atleast_1d(kernel_size)
     stride = np.atleast_1d(stride)
     padding = (kernel_size-stride+1) / 2
@@ -66,6 +87,13 @@ def get_padding(
 def get_output_padding(
   kernel_size: Union[int, Sequence[int]], stride: Union[int, Sequence[int]], padding: Union[int, Tuple[int]]
 ) -> Union[int, Tuple[int, ...]]:
+    """calculate output padding values for ConvTranspose based on kernel sizes, strides and paddings
+
+    :param kernel_size: kernel sizes
+    :param stride: strides
+    :param padding: paddings
+    :return: int or tuple of ints representing output padding values
+    """
     kernel_size = np.atleast_1d(kernel_size)
     stride = np.atleast_1d(stride)
     padding = np.atleast_1d(padding)
