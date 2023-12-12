@@ -1,0 +1,24 @@
+# IDEs
+.idea/
+.vscode/
+
+# Caches
+__pycache__
+
+# Checkpoints, logs and weights
+ckpt/
+weights/
+logs/
+*.pth
+*.pt
+*.h5
+*.onnx
+
+# MacOS
+.DS_Store
+
+# env
+.env
+.venv
+env/
+venv/
