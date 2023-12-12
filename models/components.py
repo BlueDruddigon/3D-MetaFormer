@@ -1,8 +1,11 @@
-from typing import Callable, Optional
+import itertools
+from typing import Callable, Optional, Sequence
 
 import torch
 import torch.nn as nn
-from timm.layers import DropPath
+from timm.layers import to_ntuple, trunc_normal_
+
+from utils.conv_utils import get_conv_layer
 
 
 class MLP(nn.Sequential):
@@ -31,6 +34,81 @@ class MLP(nn.Sequential):
           nn.Linear(hidden_features, out_features), dropout
         ])
         super().__init__(*layers)
+
+
+class PatchEmbed(nn.Module):
+    def __init__(
+      self,
+      img_size: int = 224,
+      patch_size: int = 16,
+      spatial_dims: int = 2,
+      in_chans: int = 3,
+      embed_dim: int = 768,
+      norm_layer: Optional[Callable] = None,
+      dropout_rate: float = 0.
+    ) -> None:
+        """Patch Embedding with positional encodings based on spatial dimensions
+
+        :param img_size: input image size, Default: 224
+        :param patch_size: patch size, Default: 16
+        :param spatial_dims: spatial dimensions, 2 for HW and 3 for DHW, Default: 2.
+        :param in_chans: input channels, Default: 3.
+        :param embed_dim: embedding dimension, Default: 768
+        :param dropout_rate: projection dropout rate, Default: 0.
+        """
+        super().__init__()
+        
+        self.img_size = to_ntuple(spatial_dims)(img_size)
+        self.patch_size = to_ntuple(spatial_dims)(patch_size)
+        self.num_patches = (img_size // patch_size) ** spatial_dims
+        self.patches_resolution = to_ntuple(spatial_dims)(img_size // patch_size)
+        self.spatial_dims = spatial_dims
+        
+        # embeddings projection operator based on spatial_dims
+        self.proj = get_conv_layer(
+          spatial_dims, in_chans, embed_dim, kernel_size=self.patch_size, stride=self.patch_size
+        )
+        self.norm = norm_layer(embed_dim) if norm_layer is not None else nn.Identity()
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        :param x: input image tensor - tensor shape: (B, C, [D], H, W), where
+            B is batch size, C is channel dimension, and [D], H, W are spatial dimensions
+        :return: a tensor contains patches with additional positional embeddings
+        """
+        assert x.size()[::-1][:self.spatial_dims] == self.img_size, "Input image size doesn't match model size"
+        x = self.proj(x).flatten(2).transpose(1, 2)
+        return self.norm(x)
+
+
+class PatchMerging(nn.Module):
+    def __init__(self, input_resolution: Sequence[int], dim: int, norm_layer: Callable = nn.LayerNorm) -> None:
+        super().__init__()
+        self.input_resolution = input_resolution
+        self.dim = dim
+        self.spatial_dims = len(input_resolution)
+        self.reduction = nn.Linear(dim * 2 ** self.spatial_dims, dim * 2, bias=False)
+        self.norm = norm_layer(2 * dim)
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, L, C = x.shape
+        assert L == torch.prod(torch.tensor(self.input_resolution)), 'input feature has wrong size'
+        assert all(x % 2 == 0 for x in self.input_resolution), 'x size are not even'
+        
+        x = x.view([B] + list(self.input_resolution) + [C])
+        if self.spatial_dims == 3:
+            x = torch.cat(
+              [x[:, i::2, j::2, k::2, :] for i, j, k in itertools.product(range(2), range(2), range(2))],
+              dim=-1,
+            )
+        elif self.spatial_dims == 2:
+            x = torch.cat([x[:, i::2, j::2, :] for i, j, k in itertools.product(range(2), range(2))], dim=-1)
+        else:
+            raise ValueError
+        
+        x = x.view(B, -1, 2 ** self.spatial_dims * C)
+        x = self.norm(self.reduction(x))
+        return x
 
 
 class Attention(nn.Module):
@@ -77,48 +155,91 @@ class Attention(nn.Module):
         return x
 
 
-class VitBlock(nn.Module):
+class WindowAttention(nn.Module):
     def __init__(
       self,
       dim: int,
+      spatial_dims: int,
+      window_size: int,
       num_heads: int,
       qkv_bias: bool = True,
-      mlp_ratio: float = 4.,
-      act_layer: Callable = nn.GELU,
-      norm_layer: Callable = nn.LayerNorm,
       attn_drop: float = 0.,
-      proj_drop: float = 0.,
-      drop_path: float = 0.,
+      proj_drop: float = 0.
     ) -> None:
-        """Vision Transformer Encoder Block
-
-        :param dim:
-        :param num_heads: Number of attention heads
-        :param qkv_bias: Whether to add a bias to the Attention module, Default: True
-        :param mlp_ratio: The ratio of mlp dimensions, Default: 4.
-        :param act_layer: The activation function, Default: 'GELU'
-        :param norm_layer: The normalization layer, Default: 'LayerNorm'
-        :param attn_drop: The dropout for attention, Default: 0.
-        :param proj_drop: The dropout for projection, Default: 0.
-        :param drop_path: The Stochastic Depth decay ratio, Default: 0.
-        """
         super().__init__()
         
-        self.attn = Attention(dim, num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=proj_drop)
-        self.attn_norm = norm_layer(dim)
+        self.dim = dim
+        self.window_size = to_ntuple(spatial_dims)(window_size)
+        self.num_heads = num_heads
+        head_dim = dim // num_heads
+        self.scale = head_dim ** -0.5
+        self.spatial_dims = spatial_dims
+        mesh_args = torch.meshgrid.__kwdefaults__
         
-        self.drop_path = DropPath(drop_path) if drop_path > 0 else nn.Identity()
+        window_range = (2*window_size - 1) ** spatial_dims
+        if self.spatial_dims == 3:
+            self.relative_position_bias_table = nn.Parameter(torch.zeros(window_range, num_heads))
+            coords_d = torch.arange(self.window_size[0])
+            coords_h = torch.arange(self.window_size[1])
+            coords_w = torch.arange(self.window_size[2])
+            if mesh_args is not None:
+                coords = torch.stack(torch.meshgrid(coords_d, coords_h, coords_w, indexing='ij'))
+            else:
+                coords = torch.stack(torch.meshgrid(coords_d, coords_h, coords_w))
+            coords_flatten = torch.flatten(coords, 1)
+            relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]
+            relative_coords = relative_coords.permute(1, 2, 0).contiguous()
+            relative_coords[:, :, 0] += self.window_size[0] - 1
+            relative_coords[:, :, 1] += self.window_size[1] - 1
+            relative_coords[:, :, 2] += self.window_size[2] - 1
+            relative_coords[:, :, 0] *= (2 * self.window_size[1] - 1) * (2 * self.window_size[2] - 1)
+            relative_coords[:, :, 1] *= 2 * self.window_size[2] - 1
+        elif self.spatial_dims == 2:
+            self.relative_position_bias_table = nn.Parameter(torch.zeros(window_range, num_heads))
+            coords_h = torch.arange(self.window_size[0])
+            coords_w = torch.arange(self.window_size[1])
+            if mesh_args is not None:
+                coords = torch.stack(torch.meshgrid(coords_h, coords_w, indexing='ij'))
+            else:
+                coords = torch.stack(torch.meshgrid(coords_h, coords_w))
+            coords_flatten = torch.flatten(coords, 1)
+            relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]
+            relative_coords = relative_coords.permute(1, 2, 0).contiguous()
+            relative_coords[:, :, 0] += self.window_size[0] - 1
+            relative_coords[:, :, 1] += self.window_size[1] - 1
+            relative_coords[:, :, 0] *= 2 * self.window_size[1] - 1
+        else:
+            raise ValueError
         
-        mlp_hidden_dim = int(mlp_ratio * dim)
-        self.ffn = MLP(dim, mlp_hidden_dim, act_layer=act_layer, dropout_rate=proj_drop)
-        self.ffn_norm = norm_layer(dim)
+        relative_position_index = relative_coords.sum(-1)
+        self.register_buffer('relative_position_index', relative_position_index)
+        
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+        
+        trunc_normal_(self.relative_position_bias_table, std=.02)
     
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        :param x: input feature map - tensor shape: (B, N, C), where
-            B is the batch size, N is the number of tokens, and C is the number of embedding dimensions
-        :return: encoded feature map - tensor shape: (B, N, C)
-        """
-        x += self.drop_path(self.attn(self.attn_norm(x)))
-        x += self.drop_path(self.ffn(self.ffn_norm(x)))
+    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        B_, N, C = x.shape
+        qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0].float(), qkv[1].float(), qkv[2].float()
+        
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(N, N, -1)
+        relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()
+        attn += relative_position_bias.unsqueeze(0)
+        
+        if mask is not None:
+            num_windows = mask.shape[0]
+            attn = attn.view(B_ // num_windows, num_windows, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
+            attn = attn.view(-1, self.num_heads, N, N)
+        
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+        
+        x = (attn @ v).transpose(1, 2).reshape(B_, N, C)
+        x = self.proj_drop(self.proj(x))
+        
         return x
