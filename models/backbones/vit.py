@@ -23,8 +23,8 @@ class PatchEmbed(nn.Module):
 
         :param img_size: input image size, Default: 224
         :param patch_size: patch size, Default: 16
-        :param spatial_dims: spatial dimensions, 2 for HW and 3 for DHW, Default: 2
-        :param in_chans: input channels, Default: 3
+        :param spatial_dims: spatial dimensions, 2 for HW and 3 for DHW, Default: 2.
+        :param in_chans: input channels, Default: 3.
         :param embed_dim: embedding dimension, Default: 768
         :param dropout_rate: projection dropout rate, Default: 0.
         """
