@@ -17,6 +17,7 @@ def save_checkpoint(
   epoch: int,
   args: argparse.Namespace,
   best_acc: float = 0.,
+  current_acc: float = 0.,
   filename: str = '',
   optimizer: Optional[optim.Optimizer] = None,
   scheduler: Optional[LRScheduler] = None,
@@ -27,6 +28,7 @@ def save_checkpoint(
     :param epoch: The current epoch
     :param args: The arguments that set.
     :param best_acc: Current best_valid_acc, Default: 0.
+    :param current_acc: Current valid accuracy, Default: 0.
     :param filename: Filename to save, Default: ''
     :param optimizer: Optimizer to use, Default: None
     :param scheduler: LR Scheduler to use, Default: None
@@ -42,7 +44,7 @@ def save_checkpoint(
     if scheduler is not None:
         save_dict['scheduler'] = scheduler.state_dict()
     if not filename:
-        filename = f'weights-{epoch}-{best_acc:.2f}.pth'
+        filename = f'weights-{epoch}-{current_acc:.2f}.pth'
     filepath = os.path.join(args.save_dir, filename)
     if args.rank == 0:
         torch.save(save_dict, filepath)
