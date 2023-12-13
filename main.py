@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+import warnings
 from typing import Callable, Optional, Tuple, Union
 
 import torch
@@ -21,6 +22,7 @@ from utils.dist import setup_for_distributed
 
 # disable warn logging
 logging.disable(logging.WARNING)
+warnings.filterwarnings("ignore")
 
 
 def parse_args():
@@ -191,7 +193,6 @@ def initialize_algorithm(
         )
     else:
         raise ValueError
-    print('Model is built')
     
     # Loss function
     if args.loss_fn == 'dice':
@@ -216,7 +217,6 @@ def initialize_algorithm(
         )
     else:
         raise ValueError
-    print('LossFn is built')
     
     # Optimization Algorithm
     if args.opt_name == 'sgd':
@@ -233,7 +233,6 @@ def initialize_algorithm(
         )
     else:
         raise ValueError
-    print('Optimizer is built')
     
     # Learning rate scheduler
     if args.lr_scheduler == 'warmup_cosine':
@@ -244,7 +243,6 @@ def initialize_algorithm(
         lr_scheduler = CosineAnnealingLR(optimizer, T_max=args.max_epochs)
     else:
         lr_scheduler = None
-    print('Scheduler is built')
     
     if args.early_stop:
         early_stop_callback = EarlyStopping(mode='max', patience=args.patience)
@@ -264,12 +262,10 @@ def main(args: argparse.Namespace):
     else:
         args.rank = 0
         args.world_size = 1
-    print('Distributed training is initialized')
     
     # prepare a device with current rank
     torch.cuda.set_device(args.rank)
     args.device = torch.device(f'cuda:{args.rank}')
-    print('Using device:', args.device)
     
     # init model, loss_fn, optimizer, lr_scheduler
     args, model, criterion, optimizer, lr_scheduler, early_stop_callback = initialize_algorithm(args)
@@ -277,12 +273,10 @@ def main(args: argparse.Namespace):
     # move to CUDA
     model = model.to(args.device)
     criterion = criterion.to(args.device)
-    print('Moved to device:', args.device)
     
     # wrap model with DDP if distributed training is available
     if args.distributed:
         model = DDP(model, device_ids=[args.rank], output_device=args.rank, find_unused_parameters=True)
-        print('Wrapped model to DDP')
     
     # load from checkpointing if available
     args, model, optimizer, lr_scheduler = load_checkpoint(args, model, optimizer, lr_scheduler)
@@ -292,7 +286,6 @@ def main(args: argparse.Namespace):
     args.save_dir = os.path.join(args.exp_dir, 'weights')
     args.log_dir = os.path.join(args.exp_dir, 'logs')
     
-    print('Make Experimental Dirs')
     os.makedirs(args.exp_dir, exist_ok=True)
     os.makedirs(args.save_dir, exist_ok=True)
     os.makedirs(args.log_dir, exist_ok=True)
@@ -301,11 +294,9 @@ def main(args: argparse.Namespace):
     writer = SummaryWriter(args.log_dir)
     
     # get loader from dataset and arguments
-    print('Building Cached Dataset')
     train_loader, valid_loader = build_dataset(args)
     
     # training process
-    print('Begin training')
     acc = run_training(
       model,
       criterion,
