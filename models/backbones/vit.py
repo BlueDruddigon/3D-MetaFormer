@@ -58,8 +58,8 @@ class VitBlock(nn.Module):
 class VisionTransformer(nn.Module):
     def __init__(
       self,
-      img_size: int = 224,
-      patch_size: int = 16,
+      img_size: Union[int, Sequence[int]] = 224,
+      patch_size: Union[int, Sequence[int]] = 16,
       spatial_dims: int = 2,
       in_channels: int = 3,
       num_classes: int = 1000,
@@ -110,7 +110,6 @@ class VisionTransformer(nn.Module):
           spatial_dims=spatial_dims,
           in_chans=in_channels,
           embed_dim=embed_dim,
-          dropout_rate=proj_drop
         )
         num_patches = self.patch_embed.num_patches
         self.input_resolution = self.patch_embed.patches_resolution

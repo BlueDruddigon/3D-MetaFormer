@@ -1,5 +1,5 @@
 import math
-from typing import Optional, Generator
+from typing import Optional
 
 import numpy as np
 import torch
@@ -35,7 +35,7 @@ class CustomSampler(Sampler):
         indices = list(range(len(self.dataset)))
         self.valid_length = len(indices[self.rank:self.total_size:self.num_replicas])
     
-    def __iter__(self) -> Generator[None]:
+    def __iter__(self):
         if self.shuffle:
             g = torch.Generator()
             g.manual_seed(self.epoch)

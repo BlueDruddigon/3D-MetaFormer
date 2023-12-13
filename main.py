@@ -201,25 +201,17 @@ def initialize_algorithm(
           args.in_channels,
           args.num_classes,
           img_size=(args.roi_x, args.roi_y, args.roi_z),
-          patch_size=args.patch_size,
           embed_dim=args.embed_dim,
           feature_size=args.feature_size,
-          depths=args.depths,
           mlp_ratio=args.mlp_ratio,
           num_layers=args.num_layers,
           num_heads=args.num_heads,
           qkv_bias=args.qkv_bias,
-          qk_scale=args.qk_scale,
           drop_path_rate=args.drop_path_rate,
-          attn_drop=args.attn_drop,
-          proj_drop=args.proj_drop,
+          attn_drop_rate=args.attn_drop,
+          proj_drop_rate=args.proj_drop,
           act_layer=args.act_layer,
           norm_layer=args.norm_layer,
-          kernel_size=args.kernel_size,
-          stride=args.stride,
-          upsample_kernel_size=args.upsample_kernel_size,
-          post_activation=None if not args.classification else args.post_activation,
-          save_attn=args.save_attn
         )
     else:
         raise ValueError
@@ -293,7 +285,7 @@ def main(args: argparse.Namespace):
         args.rank = 0
         args.world_size = 1
     
-    # prepare device with current rank
+    # prepare a device with current rank
     torch.cuda.set_device(args.rank)
     args.device = torch.device(f'cuda:{args.rank}')
     
@@ -312,16 +304,16 @@ def main(args: argparse.Namespace):
     args, model, optimizer, lr_scheduler = load_checkpoint(args, model, optimizer, lr_scheduler)
     
     # weights and logs
-    args.exp_dir = os.path.join(args.exp_dir, args.model_name)
-    args.save_dir = os.path.join(args.exp_dir, 'weights')
-    args.log_dir = os.path.join(args.exp_dir, 'logs')
+    args.exp_dir = os.path.join(str(args.exp_dir), args.model_name)
+    args.save_dir = os.path.join(str(args.exp_dir), 'weights')
+    args.log_dir = os.path.join(str(args.exp_dir), 'logs')
     
     os.makedirs(args.exp_dir, exist_ok=True)
     os.makedirs(args.save_dir, exist_ok=True)
     os.makedirs(args.log_dir, exist_ok=True)
     
     # Tensorboard logger
-    writer = SummaryWriter(args.log_dir)
+    writer = SummaryWriter(log_dir=str(args.log_dir))
     
     # get loader from dataset and arguments
     train_loader, valid_loader = build_dataset(args)
