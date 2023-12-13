@@ -5,7 +5,7 @@ import torch.nn as nn
 from timm.layers import trunc_normal_, DropPath
 from torch.utils.checkpoint import checkpoint
 
-from models.components import MLP, Attention, PatchEmbed
+from ..components import MLP, Attention, PatchEmbed
 
 
 class VitBlock(nn.Module):
@@ -172,12 +172,14 @@ class VisionTransformer(nn.Module):
       self,
       x: torch.Tensor,
       save_state: bool = False,
+      intermediate_levels: Optional[Sequence[int]] = None
     ) -> Union[torch.Tensor, Sequence[torch.Tensor]]:
         """feature extractor forward pass
 
         :param x: input image tensor - tensor shape (B, C, [D], H, W) where
             B is batch size, C is a channel dimension, [D], H, W is spatial dimensions
         :param save_state: whether to return all hidden states instead of last output, Default: False
+        :param intermediate_levels: list of intermediate feature levels to save, Default: None
         :return: list of hidden states if save_state is True, else last hidden state only
         """
         x = self.patch_embed(x)
@@ -189,23 +191,31 @@ class VisionTransformer(nn.Module):
             x = torch.cat([cls_token, x], dim=1)
         
         hidden_state_out = []
-        for func in self.blocks:  # forward encoder block using checkpointing
+        for idx, func in enumerate(self.blocks):  # forward encoder block using checkpointing
             if self.use_checkpoint:
                 x = checkpoint(func, x)
             else:
                 x = func(x)
-            hidden_state_out.append(x)
+            if not save_state:
+                continue
+            if intermediate_levels is None:  # if `intermediate_levels` is not provided, save all states
+                hidden_state_out.append(x)
+                continue
+            elif idx + 1 in intermediate_levels:  # add 1 because of start index = 0
+                hidden_state_out.append(x)
         
         x = self.norm_layer(x)
         return hidden_state_out if save_state else x
     
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, intermediate_levels: Optional[Sequence[int]] = None) -> torch.Tensor:
         """
         :param x: input image tensor - shape (B, C, [D], H, W) where
             B is batch size, C is a channel dimension, [D], H, W is spatial dimensions
+        :param intermediate_levels: list of intermediate feature levels to save, Default: None
         :return: extracted feature maps or classification heads
         """
-        x: torch.Tensor = self.forward_features(x, save_state=False)
         if self.classification:
-            x = self.head(x[:, 0])  # classifier `token` as used by standard language architecture
-        return x
+            out = self.forward_features(x, save_state=False)
+            out = self.head(out[:, 0])  # classifier `token` as used by standard language architecture
+            return out
+        return self.forward_features(x, save_state=True, intermediate_levels=intermediate_levels)
