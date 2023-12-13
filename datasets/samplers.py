@@ -15,7 +15,6 @@ class CustomSampler(Sampler):
       shuffle: bool = True,
       make_even: bool = True
     ) -> None:
-        super().__init__()
         if num_replicas is None:
             if not torch.distributed.is_available():
                 raise RuntimeError('Requires distributed package to be available')
