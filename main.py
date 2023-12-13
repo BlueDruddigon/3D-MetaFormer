@@ -1,7 +1,7 @@
 import argparse
 import logging
 import os
-from typing import Callable, Optional, Sequence, Tuple, Union
+from typing import Callable, Optional, Tuple, Union
 
 import torch
 import torch.distributed as dist
@@ -35,7 +35,7 @@ def parse_args():
     parser.add_argument('--roi-z', type=int, default=96, help='ROI size in z direction')
     parser.add_argument('--workers', type=int, default=4, help='number of workers for DataLoader')
     parser.add_argument('--train-cache-num', type=int, default=24, help='Number of cached samples in CacheDataset')
-    parser.add_argument('--valid-cache-num', type=int, default=8, help='Number of cached samples in CacheDataset')
+    parser.add_argument('--valid-cache-num', type=int, default=6, help='Number of cached samples in CacheDataset')
     
     # Transform's Hyperparams
     parser.add_argument('--a-min', type=float, default=-175., help='a_min in ScaleIntensityRanged')
@@ -56,33 +56,15 @@ def parse_args():
     
     # Feature Extractor's Hyperparams
     parser.add_argument(
-      '--patch-size', type=Union[int, Sequence[int]], default=(16, 16, 16), help='Patch size for Vision Transformer'
-    )
-    parser.add_argument(
       '--embed-dim', type=int, default=768, help='Embedding Dimension for Vision Transformer and UNETR'
     )
-    parser.add_argument('--num-layers', type=int, default=12, help='Number of Vision Transformer\'s Encoder layers')
     parser.add_argument('--num-heads', type=int, default=12, help='Number of Attention Head for Vision Transformer')
     parser.add_argument('--mlp-ratio', type=float, default=4., help='Hidden Feature Ratio for MLP')
     parser.add_argument('--qkv-bias', type=bool, default=True, help='Whether using bias for Attention Head')
-    parser.add_argument(
-      '--qk-scale', type=Optional[float], default=None, help='Overrides default qk scale for Attention Head'
-    )
-    parser.add_argument(
-      '--classification', type=bool, default=False, help='Whether using Vision Transformer\'s Classification Head'
-    )
     parser.add_argument('--drop-path-rate', type=float, default=.1, help='Stochastic Depth Decay Rule')
     parser.add_argument('--attn-drop', type=float, default=0., help='Attention Head Dropout Rate')
     parser.add_argument('--proj-drop', type=float, default=0., help='Attention Output Projection Dropout Rate')
-    parser.add_argument('--act-layer', type=Callable, default=nn.GELU, help='Activation Layer to choose')
-    parser.add_argument(
-      '--post-activation',
-      type=Optional[str],
-      default=None,
-      choices=['tanh', None],
-      help='Post Activation Layer to be applied in classification head in Vision Transformer'
-    )
-    parser.add_argument('--save-attn', type=bool, default=False, help='Whether to store the attention map')
+    parser.add_argument('--spatial-dims', type=int, default=3, help='Spatial Dimensions')
     
     # Model's Hyperparams
     parser.add_argument('--model-name', type=str, default='UNETR', choices=['UNETR'], help='Name of the model to use')
@@ -93,14 +75,7 @@ def parse_args():
     parser.add_argument(
       '--norm-layer', type=Callable, default=nn.BatchNorm3d, help='Normalization layer using in UNETR'
     )
-    parser.add_argument('--kernel-size', type=Union[int, Sequence[int]], default=3, help='Kernel sizes using in Conv3D')
-    parser.add_argument('--stride', type=Union[int, Sequence[int]], default=1, help='Strides using in Conv3D')
-    parser.add_argument(
-      '--upsample-kernel-size',
-      type=Union[int, Sequence[int]],
-      default=2,
-      help='Kernel sizes and strides using for Deconv'
-    )
+    parser.add_argument('--act-layer', type=Callable, default=nn.LeakyReLU, help='Activation Layer to choose')
     
     # Optimization's Hyperparams
     parser.add_argument(
@@ -186,6 +161,7 @@ def load_checkpoint(
             lr_scheduler.load_state_dict(ckpt['lr_scheduler'])
         args.start_epoch = ckpt['epoch'] + 1
         args.best_valid_acc = ckpt['best_valid_acc']
+        print(f'Resume training from epoch {args.start_epoch}')
     else:
         print('Training from scratch.')
     
@@ -204,7 +180,7 @@ def initialize_algorithm(
           embed_dim=args.embed_dim,
           feature_size=args.feature_size,
           mlp_ratio=args.mlp_ratio,
-          num_layers=args.num_layers,
+          num_layers=args.depths,
           num_heads=args.num_heads,
           qkv_bias=args.qkv_bias,
           drop_path_rate=args.drop_path_rate,
@@ -215,6 +191,7 @@ def initialize_algorithm(
         )
     else:
         raise ValueError
+    print('Model is built')
     
     # Loss function
     if args.loss_fn == 'dice':
@@ -239,6 +216,7 @@ def initialize_algorithm(
         )
     else:
         raise ValueError
+    print('LossFn is built')
     
     # Optimization Algorithm
     if args.opt_name == 'sgd':
@@ -255,6 +233,7 @@ def initialize_algorithm(
         )
     else:
         raise ValueError
+    print('Optimizer is built')
     
     # Learning rate scheduler
     if args.lr_scheduler == 'warmup_cosine':
@@ -265,6 +244,7 @@ def initialize_algorithm(
         lr_scheduler = CosineAnnealingLR(optimizer, T_max=args.max_epochs)
     else:
         lr_scheduler = None
+    print('Scheduler is built')
     
     if args.early_stop:
         early_stop_callback = EarlyStopping(mode='max', patience=args.patience)
@@ -284,10 +264,12 @@ def main(args: argparse.Namespace):
     else:
         args.rank = 0
         args.world_size = 1
+    print('Distributed training is initialized')
     
     # prepare a device with current rank
     torch.cuda.set_device(args.rank)
     args.device = torch.device(f'cuda:{args.rank}')
+    print('Using device:', args.device)
     
     # init model, loss_fn, optimizer, lr_scheduler
     args, model, criterion, optimizer, lr_scheduler, early_stop_callback = initialize_algorithm(args)
@@ -295,30 +277,35 @@ def main(args: argparse.Namespace):
     # move to CUDA
     model = model.to(args.device)
     criterion = criterion.to(args.device)
+    print('Moved to device:', args.device)
     
     # wrap model with DDP if distributed training is available
     if args.distributed:
         model = DDP(model, device_ids=[args.rank], output_device=args.rank, find_unused_parameters=True)
+        print('Wrapped model to DDP')
     
     # load from checkpointing if available
     args, model, optimizer, lr_scheduler = load_checkpoint(args, model, optimizer, lr_scheduler)
     
     # weights and logs
-    args.exp_dir = os.path.join(str(args.exp_dir), args.model_name)
-    args.save_dir = os.path.join(str(args.exp_dir), 'weights')
-    args.log_dir = os.path.join(str(args.exp_dir), 'logs')
+    args.exp_dir = os.path.join(args.exp_dir, args.model_name)
+    args.save_dir = os.path.join(args.exp_dir, 'weights')
+    args.log_dir = os.path.join(args.exp_dir, 'logs')
     
+    print('Make Experimental Dirs')
     os.makedirs(args.exp_dir, exist_ok=True)
     os.makedirs(args.save_dir, exist_ok=True)
     os.makedirs(args.log_dir, exist_ok=True)
     
     # Tensorboard logger
-    writer = SummaryWriter(log_dir=str(args.log_dir))
+    writer = SummaryWriter(args.log_dir)
     
     # get loader from dataset and arguments
+    print('Building Cached Dataset')
     train_loader, valid_loader = build_dataset(args)
     
     # training process
+    print('Begin training')
     acc = run_training(
       model,
       criterion,
