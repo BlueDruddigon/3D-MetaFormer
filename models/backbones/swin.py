@@ -5,7 +5,7 @@ import torch.nn as nn
 from timm.layers import DropPath, to_ntuple, trunc_normal_
 from torch.utils.checkpoint import checkpoint
 
-from models.components import WindowAttention, MLP, PatchEmbed, PatchMerging
+from ..components import WindowAttention, MLP, PatchEmbed, PatchMerging
 
 
 def window_partition(x: torch.Tensor, window_size: int) -> torch.Tensor:
@@ -342,12 +342,12 @@ class SwinTransformer(nn.Module):
         return hidden_state_out if save_state else x
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.forward_features(x, save_state=False)
         if self.classification:
+            x = self.forward_features(x, save_state=False)
             x = self.pool(x.transpose(1, 2))
             x = torch.flatten(x, 1)
-            x = self.head(x)
-        return x
+            return self.head(x)
+        return self.forward_features(x, save_state=True)
     
     @torch.jit.ignore
     def no_weight_decay(self):
