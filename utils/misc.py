@@ -1,12 +1,13 @@
 import argparse
 import os
 import random
-from typing import Optional, Union
+from typing import Optional, Union, Any, Sequence
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from timm.layers import to_ntuple
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.lr_scheduler import LRScheduler
 
@@ -46,6 +47,14 @@ def save_checkpoint(
     if args.rank == 0:
         torch.save(save_dict, filepath)
     print('Saved checkpoint', filepath)
+
+
+def ensure_tuple_dims(tup: Any, dims: int) -> Sequence[int]:
+    if isinstance(tup, (list, tuple)):
+        assert len(tup) == dims
+        return tuple(tup)
+    elif isinstance(tup, int):
+        return to_ntuple(dims)(tup)
 
 
 def seed_everything(seed: int) -> None:

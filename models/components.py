@@ -1,11 +1,13 @@
 import itertools
-from typing import Callable, Optional, Sequence
+from typing import Callable, Optional, Sequence, Union
 
+import numpy as np
 import torch
 import torch.nn as nn
-from timm.layers import to_ntuple, trunc_normal_
+from timm.layers import trunc_normal_
 
 from utils.conv_utils import get_conv_layer
+from utils.misc import ensure_tuple_dims
 
 
 class MLP(nn.Sequential):
@@ -39,13 +41,12 @@ class MLP(nn.Sequential):
 class PatchEmbed(nn.Module):
     def __init__(
       self,
-      img_size: int = 224,
-      patch_size: int = 16,
+      img_size: Union[int, Sequence[int]] = 224,
+      patch_size: Union[int, Sequence[int]] = 16,
       spatial_dims: int = 2,
       in_chans: int = 3,
       embed_dim: int = 768,
       norm_layer: Optional[Callable] = None,
-      dropout_rate: float = 0.
     ) -> None:
         """Patch Embedding with positional encodings based on spatial dimensions
 
@@ -54,14 +55,16 @@ class PatchEmbed(nn.Module):
         :param spatial_dims: spatial dimensions, 2 for HW and 3 for DHW, Default: 2.
         :param in_chans: input channels, Default: 3.
         :param embed_dim: embedding dimension, Default: 768
-        :param dropout_rate: projection dropout rate, Default: 0.
         """
         super().__init__()
         
-        self.img_size = to_ntuple(spatial_dims)(img_size)
-        self.patch_size = to_ntuple(spatial_dims)(patch_size)
-        self.num_patches = (img_size // patch_size) ** spatial_dims
-        self.patches_resolution = to_ntuple(spatial_dims)(img_size // patch_size)
+        img_size = ensure_tuple_dims(img_size, spatial_dims)
+        patch_size = ensure_tuple_dims(patch_size, spatial_dims)
+        
+        self.img_size = img_size
+        self.patch_size = patch_size
+        self.num_patches = np.prod([s // p for s, p in zip(img_size, patch_size)])
+        self.patches_resolution = tuple(s // p for s, p in zip(img_size, patch_size))
         self.spatial_dims = spatial_dims
         
         # embeddings projection operator based on spatial_dims
@@ -169,7 +172,7 @@ class WindowAttention(nn.Module):
         super().__init__()
         
         self.dim = dim
-        self.window_size = to_ntuple(spatial_dims)(window_size)
+        self.window_size = ensure_tuple_dims(window_size, spatial_dims)
         self.num_heads = num_heads
         head_dim = dim // num_heads
         self.scale = head_dim ** -0.5

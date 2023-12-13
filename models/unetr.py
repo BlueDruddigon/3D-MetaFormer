@@ -149,7 +149,7 @@ class UNETR(nn.Module):
       self,
       in_chans: int,
       num_classes: int,
-      img_size: int,
+      img_size: Sequence[int],
       feature_size: int = 64,
       embed_dim: int = 768,
       num_layers: int = 4,
@@ -166,9 +166,11 @@ class UNETR(nn.Module):
     ) -> None:
         super().__init__()
         
+        assert len(img_size) == spatial_dims
+        
         self.num_layers = num_layers
         self.spatial_dims = spatial_dims
-        self.img_size = to_ntuple(spatial_dims)(img_size)
+        self.img_size = img_size
         self.patch_size = to_ntuple(spatial_dims)(16)
         
         self.backbone = VisionTransformer(
