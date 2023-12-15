@@ -79,7 +79,7 @@ def train_one_epoch(
         end = time.time()
         
         if args.rank == 0:
-            # update pbar's status on master process
+            # update pbar's status on a primary process
             s = f'Epoch [{epoch}/{args.max_epochs}][{idx + 1}/{len(loader)}] ' \
                 f'Time/b: {batch_timer.val:.2f}s ({batch_timer.avg:.2f}s) ' \
                 f'Loss/b: {run_loss.val:.4f} ({run_loss.avg:.4f})'
@@ -147,7 +147,7 @@ def validate_epoch(
         end = time.time()
         
         if args.rank == 0:
-            # update pbar's status on master process
+            # update pbar's status on a primary process
             s = f'Validation [{epoch}/{args.max_epochs}][{idx + 1}/{len(loader)}] ' \
                 f'Time/b: {batch_timer.val:.2f}s ({batch_timer.avg:.2f}s) ' \
                 f'Accuracy/b: {valid_acc.val:.4f} ({valid_acc.avg:.4f})'
@@ -226,6 +226,7 @@ def run_training(
                   args,
                   filename='model_best.pth',
                   best_acc=best_valid_acc,
+                  current_acc=best_valid_acc,
                   optimizer=optimizer,
                   scheduler=scheduler
                 )
@@ -241,13 +242,22 @@ def run_training(
                   args,
                   filename='model_last.pth',
                   best_acc=best_valid_acc,
+                  current_acc=valid_avg_acc,
                   optimizer=optimizer,
                   scheduler=scheduler
                 )
                 break
             
             if (epoch+1) % args.save_freq == 0 and not update_best_valid:  # save checkpoint frequently
-                save_checkpoint(model, epoch, args, best_acc=best_valid_acc, optimizer=optimizer, scheduler=scheduler)
+                save_checkpoint(
+                  model,
+                  epoch,
+                  args,
+                  best_acc=best_valid_acc,
+                  current_acc=valid_avg_acc,
+                  optimizer=optimizer,
+                  scheduler=scheduler
+                )
         
         if scheduler is not None:  # Update LRScheduler's state if available
             scheduler.step()
