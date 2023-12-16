@@ -1,11 +1,28 @@
-from typing import Sequence, Callable, Optional, Union
+from typing import Callable, Optional, Sequence, Union, Set
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from timm.layers import DropPath, to_ntuple, trunc_normal_
 from torch.utils.checkpoint import checkpoint
 
-from ..components import WindowAttention, MLP, PatchEmbed, PatchMerging
+from ..components import MLP, PatchEmbed, PatchMerging, WindowAttention
+
+
+def pad(dims: Sequence[int], window_size: int) -> Sequence[int]:
+    spatial_dims = len(dims)
+    if spatial_dims == 3:
+        D, H, W = dims
+        pad_d = (window_size - D%window_size) % window_size
+        pad_r = (window_size - W%window_size) % window_size
+        pad_b = (window_size - H%window_size) % window_size
+        return D + pad_d, H + pad_b, W + pad_r
+    elif spatial_dims == 2:
+        H, W = dims
+        pad_r = (window_size - W%window_size) % window_size
+        pad_b = (window_size - H%window_size) % window_size
+        return H + pad_b, W + pad_r
+    raise ValueError
 
 
 def window_partition(x: torch.Tensor, window_size: int) -> torch.Tensor:
@@ -44,17 +61,15 @@ def window_reverse(windows: torch.Tensor, window_size: int, dims: Sequence[int])
 def compute_mask(dims: Sequence[int], window_size: int, shift_size: int):
     cnt = 0
     spatial_dims = len(dims)
+    dims = pad(dims, window_size)
+    img_mask = torch.zeros((1, *dims, 1))
     if spatial_dims == 3:
-        D, H, W = dims
-        img_mask = torch.zeros((1, D, H, W, 1))
         for d in slice(0, -window_size), slice(-window_size, -shift_size), slice(-shift_size, None):
             for h in slice(0, -window_size), slice(-window_size, -shift_size), slice(-shift_size, None):
                 for w in slice(0, -window_size), slice(-window_size, -shift_size), slice(-shift_size, None):
                     img_mask[:, d, h, w, :] = cnt
                     cnt += 1
     elif spatial_dims == 2:
-        H, W = dims
-        img_mask = torch.zeros((1, H, W, 1))
         for h in slice(0, -window_size), slice(-window_size, -shift_size), slice(-shift_size, None):
             for w in slice(0, -window_size), slice(-window_size, -shift_size), slice(-shift_size, None):
                 img_mask[:, h, w, :] = cnt
@@ -123,11 +138,20 @@ class SwinTransformerBlock(nn.Module):
         self.register_buffer('attn_mask', attn_mask)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        B, L, C = x.shape
-        assert L == torch.prod(torch.tensor(self.input_resolution)), 'input feature has wrong size'
+        assert x.size()[1:-1] == self.input_resolution, 'input feature has wrong size'
+        C = x.shape[-1]
         
         shortcut = x
-        x = x.view([B] + list(self.input_resolution) + [C])
+        x = x.view([x.shape[0], *self.input_resolution, C])
+        
+        # pad feature maps to multiples of window size
+        new_resolution = pad(self.input_resolution, self.window_size)
+        if len(new_resolution) == 3:
+            D, H, W = self.input_resolution
+            x = F.pad(x, (0, 0, 0, new_resolution[2] - W, 0, new_resolution[1] - H, 0, new_resolution[0] - D))
+        elif len(new_resolution) == 2:
+            H, W = self.input_resolution
+            x = F.pad(x, (0, 0, 0, new_resolution[1] - W, 0, new_resolution[0] - H))
         
         # cyclic shifts
         if self.shift_size > 0:
@@ -144,8 +168,8 @@ class SwinTransformerBlock(nn.Module):
         attn_windows = self.attn(x_windows, mask=self.attn_mask)
         
         # merge windows
-        attn_windows = attn_windows.view([-1] + list(to_ntuple(self.spatial_dims)(self.window_size)) + [C])
-        shifted_x = window_reverse(attn_windows, self.window_size, self.input_resolution)
+        attn_windows = attn_windows.view([-1, *to_ntuple(self.spatial_dims)(self.window_size), C])
+        shifted_x = window_reverse(attn_windows, self.window_size, new_resolution)
         
         # reverse cyclic shifts
         if self.shift_size > 0:
@@ -154,7 +178,14 @@ class SwinTransformerBlock(nn.Module):
         else:
             x = shifted_x
         
-        x = x.view(B, L, C)
+        # un-pad features
+        if len(new_resolution) == 3:
+            D, H, W = self.input_resolution
+            x = x[:, :D, :H, :W, :].contiguous()
+        elif len(new_resolution) == 2:
+            H, W = self.input_resolution
+            x = x[:, :H, :W, :].contiguous()
+        
         x = shortcut + self.drop_path(self.attn_norm(x))
         
         # FFN
@@ -184,6 +215,7 @@ class BasicLayer(nn.Module):
         
         self.dim = dim
         self.input_resolution = input_resolution
+        self.spatial_dims = len(input_resolution)
         self.depth = depth
         self.use_checkpoint = use_checkpoint
         
@@ -211,6 +243,7 @@ class BasicLayer(nn.Module):
         ) if downsample is not None else None
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.permute(0, *range(2, self.spatial_dims + 2), 1)
         for blk in self.blocks:
             if self.use_checkpoint:
                 x = checkpoint(blk, x)
@@ -219,7 +252,7 @@ class BasicLayer(nn.Module):
         
         if self.downsample is not None:
             x = self.downsample(x)
-        return x
+        return x.permute(0, self.spatial_dims + 1, *range(1, self.spatial_dims + 1))
     
     def _init_respostnorm(self):
         for blk in self.blocks:
@@ -232,8 +265,8 @@ class BasicLayer(nn.Module):
 class SwinTransformer(nn.Module):
     def __init__(
       self,
-      img_size: int = 224,
-      patch_size: int = 4,
+      img_size: Union[int, Sequence[int]] = 224,
+      patch_size: Union[int, Sequence[int]] = 4,
       in_chans: int = 3,
       num_classes: int = 1000,
       embed_dim: int = 96,
@@ -248,7 +281,7 @@ class SwinTransformer(nn.Module):
       norm_layer: Callable = nn.LayerNorm,
       act_layer: Callable = nn.GELU,
       ape: bool = False,
-      patch_norm: bool = True,
+      patch_norm: bool = False,
       use_checkpoint: bool = False,
       spatial_dims: int = 2,
       backbone_only: bool = False
@@ -258,9 +291,10 @@ class SwinTransformer(nn.Module):
         self.num_classes = num_classes
         self.num_layers = len(depths)
         self.embed_dim = embed_dim
+        self.spatial_dims = spatial_dims
         self.ape = ape
         self.patch_norm = patch_norm
-        self.num_features = int(embed_dim * 2 ** (self.num_layers - 1))
+        self.num_features = int(embed_dim * 2 ** self.num_layers)
         
         # patch embeddings within positional encodings
         self.patch_embed = PatchEmbed(
@@ -269,8 +303,7 @@ class SwinTransformer(nn.Module):
           spatial_dims=spatial_dims,
           in_chans=in_chans,
           embed_dim=embed_dim,
-          norm_layer=norm_layer,
-          dropout_rate=proj_drop_rate
+          norm_layer=norm_layer if patch_norm else None
         )
         num_patches = self.patch_embed.num_patches
         self.input_resolution = self.patch_embed.patches_resolution
@@ -301,7 +334,7 @@ class SwinTransformer(nn.Module):
               drop_path=dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
               norm_layer=norm_layer,
               act_layer=act_layer,
-              downsample=PatchMerging if i_layer < self.num_layers - 1 else None,
+              downsample=PatchMerging,  # here also using PatchMerging layer at the end of feature extraction
               use_checkpoint=use_checkpoint,
             )
             self.layers.append(layer)
@@ -318,7 +351,7 @@ class SwinTransformer(nn.Module):
             bly._init_respostnorm()
     
     @staticmethod
-    def _init_weights(m):
+    def _init_weights(m: nn.Module) -> None:
         if isinstance(m, nn.Linear):
             trunc_normal_(m.weight, std=.02)
             if m.bias is not None:
@@ -328,18 +361,21 @@ class SwinTransformer(nn.Module):
             nn.init.constant_(m.bias, 0)
     
     def forward_features(self, x: torch.Tensor, save_state: bool = False) -> torch.Tensor:
+        hidden_states_out = []
+        
         x = self.patch_embed(x)
         if self.ape:
             x += self.absolute_pos_embed
         x = self.pos_drop(x)
+        x = x.view(x.shape[0], self.embed_dim, *self.input_resolution)
+        hidden_states_out.append(x)
         
-        hidden_state_out = []
         for layer in self.layers:
             x = layer(x)
-            hidden_state_out.append(x)
+            hidden_states_out.append(x)
         
-        x = self.norm(x)
-        return hidden_state_out if save_state else x
+        x = self.norm(x.permute(0, *range(2, self.spatial_dims + 2), 1))
+        return hidden_states_out if save_state else x
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.classification:
@@ -350,5 +386,5 @@ class SwinTransformer(nn.Module):
         return self.forward_features(x, save_state=True)
     
     @torch.jit.ignore
-    def no_weight_decay(self):
+    def no_weight_decay(self) -> Set[str]:
         return {'absolute_pos_embed'}
