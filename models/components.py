@@ -69,7 +69,12 @@ class PatchEmbed(nn.Module):
         
         # embeddings projection operator based on spatial_dims
         self.proj = get_conv_layer(
-          spatial_dims, in_chans, embed_dim, kernel_size=self.patch_size, stride=self.patch_size
+          spatial_dims,
+          in_chans,
+          embed_dim,
+          kernel_size=self.patch_size,
+          stride=self.patch_size,
+          bias=True if norm_layer is None else False
         )
         self.norm = norm_layer(embed_dim) if norm_layer is not None else nn.Identity()
     
@@ -94,22 +99,20 @@ class PatchMerging(nn.Module):
         self.norm = norm_layer(2 * dim)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        B, L, C = x.shape
-        assert L == torch.prod(torch.tensor(self.input_resolution)), 'input feature has wrong size'
+        assert x.size()[1:-1] == self.input_resolution, 'input feature has wrong size'
         assert all(x % 2 == 0 for x in self.input_resolution), 'x size are not even'
         
-        x = x.view([B] + list(self.input_resolution) + [C])
+        x = x.view([x.shape[0], *self.input_resolution, x.shape[-1]])
         if self.spatial_dims == 3:
             x = torch.cat(
               [x[:, i::2, j::2, k::2, :] for i, j, k in itertools.product(range(2), range(2), range(2))],
               dim=-1,
             )
         elif self.spatial_dims == 2:
-            x = torch.cat([x[:, i::2, j::2, :] for i, j, k in itertools.product(range(2), range(2))], dim=-1)
+            x = torch.cat([x[:, i::2, j::2, :] for i, j in itertools.product(range(2), range(2))], dim=-1)
         else:
             raise ValueError
         
-        x = x.view(B, -1, 2 ** self.spatial_dims * C)
         x = self.norm(self.reduction(x))
         return x
 
@@ -180,8 +183,8 @@ class WindowAttention(nn.Module):
         mesh_args = torch.meshgrid.__kwdefaults__
         
         window_range = (2*window_size - 1) ** spatial_dims
+        self.relative_position_bias_table = nn.Parameter(torch.zeros(window_range, num_heads))
         if self.spatial_dims == 3:
-            self.relative_position_bias_table = nn.Parameter(torch.zeros(window_range, num_heads))
             coords_d = torch.arange(self.window_size[0])
             coords_h = torch.arange(self.window_size[1])
             coords_w = torch.arange(self.window_size[2])
@@ -198,7 +201,6 @@ class WindowAttention(nn.Module):
             relative_coords[:, :, 0] *= (2 * self.window_size[1] - 1) * (2 * self.window_size[2] - 1)
             relative_coords[:, :, 1] *= 2 * self.window_size[2] - 1
         elif self.spatial_dims == 2:
-            self.relative_position_bias_table = nn.Parameter(torch.zeros(window_range, num_heads))
             coords_h = torch.arange(self.window_size[0])
             coords_w = torch.arange(self.window_size[1])
             if mesh_args is not None:
@@ -230,8 +232,8 @@ class WindowAttention(nn.Module):
         q, k, v = qkv[0].float(), qkv[1].float(), qkv[2].float()
         
         attn = (q @ k.transpose(-2, -1)) * self.scale
-        relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(N, N, -1)
-        relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()
+        relative_position_bias = self.relative_position_bias_table[self.relative_position_index[:N, :N].reshape(-1)]
+        relative_position_bias = relative_position_bias.view(N, N, -1).permute(2, 0, 1).contiguous()
         attn += relative_position_bias.unsqueeze(0)
         
         if mask is not None:
@@ -246,3 +248,73 @@ class WindowAttention(nn.Module):
         x = self.proj_drop(self.proj(x))
         
         return x
+
+
+class UnetResBlock(nn.Module):
+    def __init__(
+      self,
+      spatial_dims: int,
+      in_channels: int,
+      out_channels: int,
+      kernel_size: Union[int, Sequence[int]] = 3,
+      stride: Union[int, Sequence[int]] = 1,
+      norm_layer: Callable = nn.BatchNorm3d,
+      act_layer: Callable = nn.LeakyReLU,
+      dropout_rate: float = 0.,
+    ) -> None:
+        super().__init__()
+        
+        self.block = UnetBasicBlock(
+          spatial_dims,
+          in_channels,
+          out_channels,
+          kernel_size=kernel_size,
+          stride=stride,
+          norm_layer=norm_layer,
+          act_layer=act_layer,
+          dropout_rate=dropout_rate
+        )
+        
+        self.downsample = in_channels != out_channels
+        if np.any(np.atleast_1d(stride) != 1):
+            self.downsample = True
+        
+        if self.downsample:
+            self.conv = get_conv_layer(spatial_dims, in_channels, out_channels, kernel_size=1, stride=stride)
+            self.drop = nn.Dropout(dropout_rate)
+            self.norm = norm_layer(out_channels)
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        residual = x
+        for blk in list(self.block.children())[:-1]:
+            x = blk(x)
+        if self.downsample:
+            residual = self.norm(self.drop(self.conv(residual)))
+        x += residual
+        x = self.block[-1](x)
+        return x
+
+
+class UnetBasicBlock(nn.Sequential):
+    def __init__(
+      self,
+      spatial_dims: int,
+      in_channels: int,
+      out_channels: int,
+      kernel_size: Union[int, Sequence[int]] = 3,
+      stride: Union[int, Sequence[int]] = 1,
+      norm_layer: Callable = nn.BatchNorm3d,
+      act_layer: Callable = nn.LeakyReLU,
+      dropout_rate: float = 0.,
+    ) -> None:
+        layers = nn.ModuleList([
+          get_conv_layer(spatial_dims, in_channels, out_channels, kernel_size=kernel_size, stride=stride, bias=False),
+          nn.Dropout(dropout_rate),
+          norm_layer(out_channels),
+          act_layer(),
+          get_conv_layer(spatial_dims, out_channels, out_channels, kernel_size=kernel_size, stride=stride, bias=False),
+          nn.Dropout(dropout_rate),
+          norm_layer(out_channels),
+          act_layer(),
+        ])
+        super().__init__(*layers)
