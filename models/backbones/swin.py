@@ -333,10 +333,9 @@ class SwinTransformer(nn.Module):
             )
             self.layers.append(layer)
         
-        self.norm = norm_layer(self.num_features)
-        
         self.classification = not backbone_only
         if self.classification:
+            self.norm = norm_layer(self.num_features)
             self.pool = nn.AdaptiveAvgPool1d(1)
             self.head = nn.Linear(self.num_features, num_classes) if num_classes > 0 else nn.Identity()
         
@@ -366,12 +365,13 @@ class SwinTransformer(nn.Module):
             x = layer(x)
             hidden_states_out.append(x)
         
-        x = self.norm(x.permute(0, *range(2, self.spatial_dims + 2), 1))
+        x = x.permute(0, *range(2, self.spatial_dims + 2), 1)
         return hidden_states_out if save_state else x
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.classification:
             x = self.forward_features(x, save_state=False)
+            x = self.norm(x)
             x = self.pool(x.transpose(1, 2))
             x = torch.flatten(x, 1)
             return self.head(x)
