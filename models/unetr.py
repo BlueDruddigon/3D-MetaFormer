@@ -1,4 +1,4 @@
-from typing import Callable, Sequence, Union, Optional
+from typing import Callable, Optional, Sequence, Union
 
 import torch
 import torch.nn as nn
@@ -6,6 +6,7 @@ from timm.layers import to_ntuple
 
 from utils.conv_utils import get_conv_layer
 from .backbones.vit import VisionTransformer
+from .components import UnetBasicBlock, UnetResBlock
 
 
 class UnetrBasicBlock(nn.Sequential):
@@ -14,29 +15,36 @@ class UnetrBasicBlock(nn.Sequential):
       spatial_dims: int,
       in_channels: int,
       out_channels: int,
-      hidden_features: Optional[int] = None,
       kernel_size: Union[int, Sequence[int]] = 3,
       stride: Union[int, Sequence[int]] = 1,
-      norm_layer: Callable = nn.BatchNorm3d,
+      norm_layer: Callable = nn.InstanceNorm3d,
       act_layer: Callable = nn.LeakyReLU,
       dropout_rate: float = 0.,
+      is_residual: bool = False
     ) -> None:
-        hidden_features = hidden_features or out_channels
-        layers = nn.ModuleList([
-          get_conv_layer(
-            spatial_dims, in_channels, hidden_features, kernel_size=kernel_size, stride=stride, bias=False
-          ),
-          nn.Dropout(dropout_rate),
-          norm_layer(hidden_features),
-          act_layer(),
-          get_conv_layer(
-            spatial_dims, hidden_features, out_channels, kernel_size=kernel_size, stride=stride, bias=False
-          ),
-          norm_layer(out_channels),
-          act_layer(),
-          nn.Dropout(dropout_rate),
-        ])
-        super().__init__(*layers)
+        if is_residual:
+            layer = UnetResBlock(
+              spatial_dims,
+              in_channels,
+              out_channels,
+              kernel_size=kernel_size,
+              stride=stride,
+              norm_layer=norm_layer,
+              act_layer=act_layer,
+              dropout_rate=dropout_rate
+            )
+        else:
+            layer = UnetBasicBlock(
+              spatial_dims,
+              in_channels,
+              out_channels,
+              kernel_size=kernel_size,
+              stride=stride,
+              norm_layer=norm_layer,
+              act_layer=act_layer,
+              dropout_rate=dropout_rate
+            )
+        super().__init__(layer)
 
 
 class UnetrEncoderBlock(nn.Sequential):
@@ -45,7 +53,6 @@ class UnetrEncoderBlock(nn.Sequential):
       spatial_dims: int,
       in_channels: int,
       out_channels: int,
-      hidden_channels: Optional[int] = None,
       num_blocks: int = 1,
       kernel_size: Union[int, Sequence[int]] = 3,
       stride: Union[int, Sequence[int]] = 1,
@@ -54,19 +61,18 @@ class UnetrEncoderBlock(nn.Sequential):
       act_layer: Callable = nn.LeakyReLU,
       dropout_rate: float = 0.
     ) -> None:
-        hidden_channels = hidden_channels or out_channels
         layers = nn.ModuleList([
           get_conv_layer(
             spatial_dims,
             in_channels,
-            hidden_channels,
+            out_channels,
             kernel_size=upsample_kernel_size,
             stride=upsample_kernel_size,
             is_transposed=True
           ),
           UnetrBasicBlock(
             spatial_dims,
-            hidden_channels,
+            out_channels,
             out_channels,
             kernel_size=kernel_size,
             stride=stride,
@@ -107,7 +113,6 @@ class UnetrDecoderBlock(nn.Module):
       spatial_dims: int,
       in_channels: int,
       out_channels: int,
-      hidden_channels: Optional[int] = None,
       kernel_size: Union[int, Sequence[int]] = 3,
       stride: Union[int, Sequence[int]] = 1,
       upsample_kernel_size: Union[int, Sequence[int]] = 2,
@@ -117,11 +122,10 @@ class UnetrDecoderBlock(nn.Module):
     ) -> None:
         super().__init__()
         
-        hidden_channels = hidden_channels or out_channels
         self.deconv = get_conv_layer(
           spatial_dims,
           in_channels,
-          hidden_channels,
+          out_channels,
           kernel_size=upsample_kernel_size,
           stride=upsample_kernel_size,
           is_transposed=True
@@ -129,7 +133,7 @@ class UnetrDecoderBlock(nn.Module):
         
         self.conv_block = UnetrBasicBlock(
           spatial_dims,
-          hidden_channels * 2,
+          out_channels * 2,
           out_channels,
           kernel_size=kernel_size,
           stride=stride,
