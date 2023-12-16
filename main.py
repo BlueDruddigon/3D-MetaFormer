@@ -2,7 +2,7 @@ import argparse
 import logging
 import os
 import warnings
-from typing import Callable, Optional, Tuple, Union
+from typing import Callable, Optional, Tuple, Union, Sequence
 
 import torch
 import torch.distributed as dist
@@ -14,6 +14,7 @@ from torch.utils.tensorboard.writer import SummaryWriter
 
 from datasets import build_dataset
 from losses.dice import DiceCELoss, DiceLoss
+from models.swin_unetr import SwinUNETR
 from models.unetr import UNETR
 from optimizers.early_stopping import EarlyStopping
 from optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
@@ -67,10 +68,13 @@ def parse_args():
     parser.add_argument('--attn-drop', type=float, default=0., help='Attention Head Dropout Rate')
     parser.add_argument('--proj-drop', type=float, default=0., help='Attention Output Projection Dropout Rate')
     parser.add_argument('--spatial-dims', type=int, default=3, help='Spatial Dimensions')
+    parser.add_argument('--patch-norm', action='store_true', help='Whether to use Normalization Layer in PatchEmbed')
     
     # Model's Hyperparams
     parser.add_argument('--model-name', type=str, default='UNETR', choices=['UNETR'], help='Name of the model to use')
-    parser.add_argument('--depths', type=int, default=4, help='Number of Encoder and Decoder\'s layers')
+    parser.add_argument(
+      '--depths', type=Union[int, Sequence[int]], default=4, help='Number of Encoder and Decoder\'s layers'
+    )
     parser.add_argument(
       '--feature-size', type=int, default=64, help='Feature Dimension for UNETR\'s Encoder and Decoder'
     )
@@ -78,6 +82,7 @@ def parse_args():
       '--norm-layer', type=Callable, default=nn.BatchNorm3d, help='Normalization layer using in UNETR'
     )
     parser.add_argument('--act-layer', type=Callable, default=nn.LeakyReLU, help='Activation Layer to choose')
+    parser.add_argument('--pretrained', type=str, default='', help='Path to backbone\'s pre-trained weights')
     
     # Optimization's Hyperparams
     parser.add_argument(
@@ -152,7 +157,7 @@ def load_checkpoint(
     args.start_epoch = 0
     args.best_valid_acc = 0.
     if args.resume:
-        ckpt = torch.load(args.resume, map_location=torch.device('cpu'))
+        ckpt = torch.load(args.resume, map_location='cpu')
         if args.distributed:  # DDP
             model.module.load_state_dict(ckpt['state_dict'])
         else:  # nn.Module
@@ -191,6 +196,26 @@ def initialize_algorithm(
           act_layer=args.act_layer,
           norm_layer=args.norm_layer,
         )
+    elif args.model_name == 'SwinUNETR':
+        model = SwinUNETR(
+          args.in_channels,
+          args.num_classes,
+          img_size=(args.roi_x, args.roi_y, args.roi_z),
+          embed_dim=args.feature_size,
+          mlp_ratio=args.mlp_ratio,
+          qkv_bias=args.qkv_bias,
+          drop_path_rate=args.drop_path_rate,
+          attn_drop_rate=args.attn_drop,
+          proj_drop_rate=args.proj_drop,
+          norm_layer=args.norm_layer,
+          act_layer=args.act_layer,
+          patch_norm=args.patch_norm,
+        )
+        
+        if args.pretrained:
+            ckpt = torch.load(args.pretrained, map_location='cpu')
+            model.backbone.load_state_dict(ckpt['state_dict'])
+            print(f'Loaded pre-trained weights from {args.pretrained}')
     else:
         raise ValueError
     
