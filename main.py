@@ -71,7 +71,9 @@ def parse_args():
     parser.add_argument('--patch-norm', action='store_true', help='Whether to use Normalization Layer in PatchEmbed')
     
     # Model's Hyperparams
-    parser.add_argument('--model-name', type=str, default='UNETR', choices=['UNETR'], help='Name of the model to use')
+    parser.add_argument(
+      '--model-name', type=str, default='UNETR', choices=['UNETR', 'SwinUNETR'], help='Name of the model to use'
+    )
     parser.add_argument(
       '--depths', type=Union[int, Sequence[int]], default=4, help='Number of Encoder and Decoder\'s layers'
     )
