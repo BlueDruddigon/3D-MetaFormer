@@ -96,7 +96,7 @@ class PatchMerging(nn.Module):
         self.dim = dim
         self.spatial_dims = len(input_resolution)
         self.reduction = nn.Linear(dim * 2 ** self.spatial_dims, dim * 2, bias=False)
-        self.norm = norm_layer(2 * dim)
+        self.norm = norm_layer(dim * 2 ** self.spatial_dims)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         assert x.size()[1:-1] == self.input_resolution, 'input feature has wrong size'
@@ -113,7 +113,7 @@ class PatchMerging(nn.Module):
         else:
             raise ValueError
         
-        x = self.norm(self.reduction(x))
+        x = self.reduction(self.norm(x))
         return x
 
 

@@ -142,6 +142,7 @@ class SwinTransformerBlock(nn.Module):
         C = x.shape[-1]
         
         shortcut = x
+        x = self.attn_norm(x)
         x = x.view([x.shape[0], *self.input_resolution, C])
         
         # pad feature maps to multiples of window size
@@ -186,10 +187,10 @@ class SwinTransformerBlock(nn.Module):
             H, W = self.input_resolution
             x = x[:, :H, :W, :].contiguous()
         
-        x = shortcut + self.drop_path(self.attn_norm(x))
+        x = shortcut + self.drop_path(x)
         
         # FFN
-        x += self.drop_path(self.ffn_norm(self.ffn(x)))
+        x += self.drop_path(self.ffn(self.ffn_norm(x)))
         return x
 
 
@@ -253,13 +254,6 @@ class BasicLayer(nn.Module):
         if self.downsample is not None:
             x = self.downsample(x)
         return x.permute(0, self.spatial_dims + 1, *range(1, self.spatial_dims + 1))
-    
-    def _init_respostnorm(self):
-        for blk in self.blocks:
-            nn.init.constant_(blk.attn_norm.weight, 0)
-            nn.init.constant_(blk.attn_norm.bias, 0)
-            nn.init.constant_(blk.ffn_norm.weight, 0)
-            nn.init.constant_(blk.ffn_norm.bias, 0)
 
 
 class SwinTransformer(nn.Module):
@@ -347,8 +341,6 @@ class SwinTransformer(nn.Module):
             self.head = nn.Linear(self.num_features, num_classes) if num_classes > 0 else nn.Identity()
         
         self.apply(self._init_weights)
-        for bly in self.layers:
-            bly._init_respostnorm()
     
     @staticmethod
     def _init_weights(m: nn.Module) -> None:
