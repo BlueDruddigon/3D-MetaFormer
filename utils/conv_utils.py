@@ -1,4 +1,4 @@
-from typing import Union, Sequence, Optional, Tuple
+from typing import Optional, Sequence, Tuple, Union
 
 import numpy as np
 from monai.networks.layers import Conv
@@ -8,13 +8,13 @@ def get_conv_layer(
   spatial_dims: int,
   in_channels: int,
   out_channels: int,
-  kernel_size: Union[int, Sequence[int]] = 3,
+  kernel_size: Union[int, Sequence[int]],
   stride: Union[int, Sequence[int]] = 1,
   padding: Optional[Union[int, Sequence[int]]] = None,
   output_padding: Optional[Union[int, Sequence[int]]] = None,
   dilation: Union[int, Sequence[int]] = 1,
   groups: int = 1,
-  bias: bool = False,
+  bias: bool = True,
   is_transposed: bool = False,
 ) -> Union[Conv.CONV, Conv.CONVTRANS]:
     """get convolutional instance from varied spatial dimensions
