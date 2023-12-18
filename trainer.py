@@ -36,14 +36,14 @@ def train_one_epoch(
     criterion.train()
     
     # status bar
-    args.print_freq = len(loader) // 10
-    pbar = tqdm(enumerate(loader), total=len(loader), miniters=args.print_freq)
+    pbar = tqdm(enumerate(loader), total=len(loader))
     
     # metrics logger
     run_loss = AverageMeter()
     batch_timer = AverageMeter()
     
     end = time.time()
+    # optimizer.zero_grad()  # zero gradients
     for idx, batch_data in pbar:
         # decode the loader's data
         if isinstance(batch_data, list):
@@ -54,12 +54,13 @@ def train_one_epoch(
         # set device for inputs and targets
         images, labels = images.to(args.device), labels.to(args.device)
         
+        optimizer.zero_grad()
+        
         with torch.autocast(device_type=args.device.type, enabled=args.amp):
             logits: torch.Tensor = model(images)
             loss: torch.Tensor = criterion(logits, labels)
         
         # Back-propagation
-        optimizer.zero_grad()
         if args.amp:
             scaler.scale(loss).backward()
             scaler.step(optimizer)
@@ -67,6 +68,14 @@ def train_one_epoch(
         else:
             loss.backward()
             optimizer.step()
+        
+        # if (idx+1) % args.accumulation_steps == 0:
+        #     if args.amp:
+        #         scaler.step(optimizer)
+        #         scaler.update()
+        #     else:
+        #         optimizer.step()
+        #     optimizer.zero_grad()
         
         # gather loss values and update metric logger
         if args.distributed:
@@ -107,8 +116,7 @@ def validate_epoch(
     assert post_label is not None
     
     # status bar
-    args.print_freq = len(loader) // 10
-    pbar = tqdm(enumerate(loader), total=len(loader), miniters=args.print_freq)
+    pbar = tqdm(enumerate(loader), total=len(loader))
     
     valid_acc = AverageMeter()
     batch_timer = AverageMeter()
@@ -177,6 +185,9 @@ def run_training(
     
     # Accuracy Metrics
     acc_func = DiceMetric(include_background=True, reduction='mean', get_not_nans=True)
+    
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.enabled = True
     
     # training
     best_valid_acc = args.best_valid_acc
