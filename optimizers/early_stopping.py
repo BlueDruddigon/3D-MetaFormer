@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Callable, Union
 
 import torch
 
@@ -34,7 +34,7 @@ class EarlyStopping:
         """ Return monitor operation from mode """
         return self.mode_dict[self.mode]
     
-    def step(self, metric: torch.Tensor) -> bool:
+    def step(self, metric: Union[float, torch.Tensor]) -> bool:
         """Monitor the quantity
 
         :param metric: the monitored quantity metric value.
