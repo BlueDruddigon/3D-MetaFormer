@@ -140,6 +140,7 @@ class Attention(nn.Module):
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
+        self.softmax = nn.Softmax(dim=-1)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -154,7 +155,7 @@ class Attention(nn.Module):
         q, k, v = qkv[0].float(), qkv[1].float(), qkv[2].float()
         attn = q @ k.transpose(-2, -1)
         attn *= self.scale
-        attn = self.attn_drop(attn.softmax(dim=-1))
+        attn = self.attn_drop(self.softmax(attn))
         
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
         x = self.proj_drop(self.proj(x))
@@ -223,6 +224,7 @@ class WindowAttention(nn.Module):
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
+        self.softmax = nn.Softmax(dim=-1)
         
         trunc_normal_(self.relative_position_bias_table, std=.02)
     
@@ -241,8 +243,7 @@ class WindowAttention(nn.Module):
             attn = attn.view(B_ // num_windows, num_windows, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
             attn = attn.view(-1, self.num_heads, N, N)
         
-        attn = attn.softmax(dim=-1)
-        attn = self.attn_drop(attn)
+        attn = self.attn_drop(self.softmax(attn))
         
         x = (attn @ v).transpose(1, 2).reshape(B_, N, C)
         x = self.proj_drop(self.proj(x))
