@@ -59,7 +59,7 @@ def train_one_epoch(
         # Back-propagation
         optimizer.zero_grad()
         loss.backward()
-        xm.step_optimizer(optimizer)
+        xm.optimizer_step(optimizer)
         
         if args.distributed:
             loss_list = dist_all_gather([loss], out_numpy=True, is_valid=idx < loader.sampler.valid_length)
