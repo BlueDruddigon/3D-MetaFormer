@@ -68,12 +68,12 @@ def compute_mask(dims: Sequence[int], window_size: int, shift_size: int):
             for h in slice(0, -window_size), slice(-window_size, -shift_size), slice(-shift_size, None):
                 for w in slice(0, -window_size), slice(-window_size, -shift_size), slice(-shift_size, None):
                     img_mask[:, d, h, w, :] = cnt
-                    cnt += 1
+                    cnt = cnt + 1
     elif spatial_dims == 2:
         for h in slice(0, -window_size), slice(-window_size, -shift_size), slice(-shift_size, None):
             for w in slice(0, -window_size), slice(-window_size, -shift_size), slice(-shift_size, None):
                 img_mask[:, h, w, :] = cnt
-                cnt += 1
+                cnt = cnt + 1
     else:
         raise ValueError
     
@@ -190,7 +190,7 @@ class SwinTransformerBlock(nn.Module):
         x = shortcut + self.drop_path(x)
         
         # FFN
-        x += self.drop_path(self.ffn(self.ffn_norm(x)))
+        x = x + self.drop_path(self.ffn(self.ffn_norm(x)))
         return x
 
 
@@ -356,7 +356,7 @@ class SwinTransformer(nn.Module):
         
         x = self.patch_embed(x)
         if self.ape:
-            x += self.absolute_pos_embed
+            x = x + self.absolute_pos_embed
         x = self.pos_drop(x)
         x = x.view(x.shape[0], self.embed_dim, *self.input_resolution)
         hidden_states_out.append(x)

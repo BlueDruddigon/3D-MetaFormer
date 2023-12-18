@@ -44,10 +44,10 @@ class CustomSampler(Sampler):
         if self.make_even:
             if len(indices) < self.total_size:
                 if self.total_size - len(indices) < len(indices):
-                    indices += indices[:(self.total_size - len(indices))]
+                    indices = indices + indices[:(self.total_size - len(indices))]
                 else:
                     extra_ids = np.random.randint(low=0, high=len(indices), size=self.total_size - len(indices))
-                    indices += [indices[ids] for ids in extra_ids]
+                    indices = indices + [indices[ids] for ids in extra_ids]
             assert len(indices) == self.total_size
         indices = indices[self.rank:self.total_size:self.num_replicas]
         self.num_samples = len(indices)

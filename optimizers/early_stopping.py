@@ -46,7 +46,7 @@ class EarlyStopping:
             self.best_score = metric
             self.counter = 0
         elif self.monitor_op(self.min_delta, metric - self.best_score):
-            self.counter += 1
+            self.counter = self.counter + 1
             if self.counter >= self.patience:
                 return True
         return False

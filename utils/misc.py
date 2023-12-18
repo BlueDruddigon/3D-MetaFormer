@@ -86,6 +86,6 @@ class AverageMeter:
     
     def update(self, value: float, n: int = 1) -> None:
         self.val = value
-        self.count += n
-        self.sum += value * n
+        self.count = self.count + n
+        self.sum = self.sum + value*n
         self.avg = np.where(self.count > 0, self.sum / self.count, self.sum)

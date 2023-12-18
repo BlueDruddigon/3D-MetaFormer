@@ -50,8 +50,8 @@ class VitBlock(nn.Module):
             B is the batch size, N is the number of tokens, and C is the number of embedding dimensions
         :return: encoded feature map - tensor shape: (B, N, C)
         """
-        x += self.drop_path(self.attn(self.attn_norm(x)))
-        x += self.drop_path(self.ffn(self.ffn_norm(x)))
+        x = x + self.drop_path(self.attn(self.attn_norm(x)))
+        x = x + self.drop_path(self.ffn(self.ffn_norm(x)))
         return x
 
 
@@ -182,7 +182,7 @@ class VisionTransformer(nn.Module):
         :return: list of hidden states if save_state is True, else last hidden state only
         """
         x = self.patch_embed(x)
-        x += self.pos_embed  # positional encodings
+        x = x + self.pos_embed  # positional encodings
         x = self.pos_drop(x)
         # cls_token adding
         if self.classification:
