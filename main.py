@@ -6,7 +6,12 @@ from typing import Callable, Optional, Sequence, Tuple, Union
 
 import torch.nn as nn
 import torch.optim as optim
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
 import torch_xla.utils.serialization as xser
+import torch_xla.distributed.xla_multiprocessing as xmp
+from torch_xla.experimental import pjrt
+import torch_xla.distributed.xla_backend
 import torch_xla.core.xla_model as xm
 from monai.losses.dice import DiceLoss, DiceCELoss
 from torch.optim.lr_scheduler import CosineAnnealingLR, LRScheduler
@@ -24,6 +29,9 @@ logging.disable(logging.WARNING)
 warnings.filterwarnings('ignore')
 
 os.environ['TPU_NAME'] = 'my-tpu'
+os.environ['PJRT_DEVICE'] = 'TPU'
+os.environ.pop('TPU_PROCESS_ADDRESSES')
+os.environ.pop('CLOUD_TPU_TASK_ID')
 
 
 def parse_args():
@@ -259,7 +267,14 @@ def initialize_algorithm(
     return args, model, criterion, optimizer, lr_scheduler, early_stop_callback
 
 
-def main_worker(args: argparse.Namespace):
+def main_worker(rank: int, args: argparse.Namespace):
+    if args.distributed:
+        dist.init_process_group(backend='xla', init_method='xla://')
+        args.rank = rank
+        args.world_size = dist.get_world_size()
+    else:
+        args.rank = 0
+        args.world_size = 1
     # prepare a device with current rank
     args.device = xm.xla_device()
     
@@ -269,6 +284,9 @@ def main_worker(args: argparse.Namespace):
     # move to CUDA
     model = model.to(args.device)
     criterion = criterion.to(args.device)
+    
+    if args.distributed:
+        model = DDP(model, find_unused_parameters=True, gradient_as_bucket_view=True)
     
     # load from checkpointing if available
     args, model, optimizer, lr_scheduler = load_checkpoint(args, model, optimizer, lr_scheduler)
@@ -305,7 +323,10 @@ def main_worker(args: argparse.Namespace):
 
 def main():
     args = parse_args()
-    main_worker(args=args)
+    if args.distributed:
+        xmp.spawn(main_worker, args=(args, ), nprocs=8, start_method='fork')
+    else:
+        main_worker(rank=0, args=args)
 
 
 if __name__ == '__main__':
