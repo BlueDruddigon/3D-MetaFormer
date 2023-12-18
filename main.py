@@ -204,6 +204,9 @@ def initialize_algorithm(
     else:
         raise ValueError
     
+    pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print('Total parameters count', pytorch_total_params)
+    
     # Loss function
     if args.loss_fn == 'dice':
         criterion = DiceLoss(to_onehot_y=True, softmax=args.softmax, squared_pred=args.squared_pred)
