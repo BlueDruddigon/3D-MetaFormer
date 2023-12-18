@@ -78,13 +78,14 @@ def parse_args():
       '--depths', type=Union[int, Sequence[int]], default=4, help='Number of Encoder and Decoder\'s layers'
     )
     parser.add_argument(
-      '--feature-size', type=int, default=64, help='Feature Dimension for UNETR\'s Encoder and Decoder'
+      '--feature-size', type=int, default=48, help='Feature Dimension for UNETR\'s Encoder and Decoder'
     )
     parser.add_argument(
       '--norm-layer', type=Callable, default=nn.BatchNorm3d, help='Normalization layer using in UNETR'
     )
     parser.add_argument('--act-layer', type=Callable, default=nn.LeakyReLU, help='Activation Layer to choose')
     parser.add_argument('--pretrained', type=str, default='', help='Path to backbone\'s pre-trained weights')
+    parser.add_argument('--use-checkpoint', action='store_true', help='Whether to use checkpointing in block')
     
     # Optimization's Hyperparams
     parser.add_argument(
@@ -112,8 +113,6 @@ def parse_args():
     parser.add_argument(
       '--loss-fn', type=str, choices=['dice', 'dice_ce'], default='dice_ce', help='Loss function to use'
     )
-    parser.add_argument('--lambda-dice', type=float, default=1., help='Weighted decay for Dice Loss')
-    parser.add_argument('--lambda-ce', type=float, default=1., help='Weighted decay for CrossEntropy Loss')
     parser.add_argument(
       '--smooth', type=float, default=1e-5, help='Specifies the amount of smoothing when computing the loss'
     )
@@ -124,13 +123,7 @@ def parse_args():
       '--softmax', type=bool, default=True, help='Whether to apply softmax act before computing the loss'
     )
     parser.add_argument(
-      '--include-background', type=bool, default=True, help='Whether to consider background as a class'
-    )
-    parser.add_argument(
       '--squared-pred', type=bool, default=True, help='Whether take squared prediction as denominator'
-    )
-    parser.add_argument(
-      '--reduction', type=str, default='mean', choices=['mean', 'sum', None], help='Reduction of the loss'
     )
     
     # Training's Hyperparams
@@ -138,15 +131,15 @@ def parse_args():
     parser.add_argument('--batch-size', type=int, default=1, help='Number of batch size')
     parser.add_argument('--resume', type=str, default='', help='Resume from checkpointing')
     parser.add_argument('--exp-dir', type=str, default='./runs', help='Experimental Directory')
-    parser.add_argument('--amp', action='store_false', help='Whether using AMP or not')
-    parser.add_argument('--print-freq', type=int, default=100, help='Print Frequency of tqdm')
+    parser.add_argument('--amp', action='store_true', help='Whether using AMP or not')
     parser.add_argument('--eval-freq', type=int, default=5, help='Evaluate Frequency')
     parser.add_argument('--save-freq', type=int, default=5, help='Save checkpoint Frequency')
     parser.add_argument('--early-stop', action='store_true', help='Whether using Early Stopping')
     parser.add_argument('--patience', type=int, default=5, help='Early Stopping Patience')
+    parser.add_argument('--accumulation-steps', type=int, default=10, help='Steps to accumulate')
     
     # Distributed training
-    parser.add_argument('--distributed', action='store_false', help='Whether using distributed training')
+    parser.add_argument('--distributed', action='store_true', help='Whether using distributed training')
     parser.add_argument('--dist-backend', type=str, default='nccl', help='distributed backend')
     
     return parser.parse_args()
@@ -197,6 +190,7 @@ def initialize_algorithm(
           proj_drop_rate=args.proj_drop,
           act_layer=args.act_layer,
           norm_layer=args.norm_layer,
+          use_checkpoint=args.use_checkpoint
         )
     elif args.model_name == 'SwinUNETR':
         model = SwinUNETR(
@@ -212,6 +206,7 @@ def initialize_algorithm(
           norm_layer=args.norm_layer,
           act_layer=args.act_layer,
           patch_norm=args.patch_norm,
+          use_checkpoint=args.use_checkpoint
         )
         
         if args.pretrained:
@@ -223,9 +218,9 @@ def initialize_algorithm(
     
     # Loss function
     if args.loss_fn == 'dice':
-        criterion = DiceLoss(to_onehot_y=True, softmax=True, squared_pred=True)
+        criterion = DiceLoss(to_onehot_y=True, softmax=args.softmax, squared_pred=args.squared_pred)
     elif args.loss_fn == 'dice_ce':
-        criterion = DiceCELoss(to_onehot_y=True, softmax=True, squared_pred=True)
+        criterion = DiceCELoss(to_onehot_y=True, softmax=args.softmax, squared_pred=args.squared_pred)
     else:
         raise ValueError
     
@@ -287,7 +282,7 @@ def main(args: argparse.Namespace):
     
     # wrap model with DDP if distributed training is available
     if args.distributed:
-        model = DDP(model, device_ids=[args.rank], output_device=args.rank, find_unused_parameters=True)
+        model = DDP(model, device_ids=[args.rank])
     
     # load from checkpointing if available
     args, model, optimizer, lr_scheduler = load_checkpoint(args, model, optimizer, lr_scheduler)
