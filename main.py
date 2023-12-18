@@ -8,7 +8,7 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
-from monai.losses.dice import DiceLoss, DiceCELoss
+from monai.losses.dice import DiceCELoss, DiceLoss
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.lr_scheduler import CosineAnnealingLR, LRScheduler
 from torch.utils.tensorboard.writer import SummaryWriter
@@ -80,10 +80,6 @@ def parse_args():
     parser.add_argument(
       '--feature-size', type=int, default=48, help='Feature Dimension for UNETR\'s Encoder and Decoder'
     )
-    parser.add_argument(
-      '--norm-layer', type=Callable, default=nn.BatchNorm3d, help='Normalization layer using in UNETR'
-    )
-    parser.add_argument('--act-layer', type=Callable, default=nn.LeakyReLU, help='Activation Layer to choose')
     parser.add_argument('--pretrained', type=str, default='', help='Path to backbone\'s pre-trained weights')
     parser.add_argument('--use-checkpoint', action='store_true', help='Whether to use checkpointing in block')
     
@@ -114,9 +110,6 @@ def parse_args():
       '--loss-fn', type=str, choices=['dice', 'dice_ce'], default='dice_ce', help='Loss function to use'
     )
     parser.add_argument(
-      '--smooth', type=float, default=1e-5, help='Specifies the amount of smoothing when computing the loss'
-    )
-    parser.add_argument(
       '--sigmoid', type=bool, default=False, help='Whether to apply sigmoid act before computing the loss'
     )
     parser.add_argument(
@@ -136,7 +129,6 @@ def parse_args():
     parser.add_argument('--save-freq', type=int, default=5, help='Save checkpoint Frequency')
     parser.add_argument('--early-stop', action='store_true', help='Whether using Early Stopping')
     parser.add_argument('--patience', type=int, default=5, help='Early Stopping Patience')
-    parser.add_argument('--accumulation-steps', type=int, default=10, help='Steps to accumulate')
     
     # Distributed training
     parser.add_argument('--distributed', action='store_true', help='Whether using distributed training')
@@ -188,8 +180,6 @@ def initialize_algorithm(
           drop_path_rate=args.drop_path_rate,
           attn_drop_rate=args.attn_drop,
           proj_drop_rate=args.proj_drop,
-          act_layer=args.act_layer,
-          norm_layer=args.norm_layer,
           use_checkpoint=args.use_checkpoint
         )
     elif args.model_name == 'SwinUNETR':
@@ -203,8 +193,6 @@ def initialize_algorithm(
           drop_path_rate=args.drop_path_rate,
           attn_drop_rate=args.attn_drop,
           proj_drop_rate=args.proj_drop,
-          norm_layer=args.norm_layer,
-          act_layer=args.act_layer,
           patch_norm=args.patch_norm,
           use_checkpoint=args.use_checkpoint
         )
@@ -230,13 +218,9 @@ def initialize_algorithm(
           model.parameters(), lr=args.lr, momentum=args.momentum, nesterov=True, weight_decay=args.weight_decay
         )
     elif args.opt_name == 'adam':
-        optimizer = optim.Adam(
-          model.parameters(), lr=args.lr, betas=(0.9, args.momentum), weight_decay=args.weight_decay
-        )
+        optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     elif args.opt_name == 'adamw':
-        optimizer = optim.AdamW(
-          model.parameters(), lr=args.lr, betas=(0.9, args.momentum), weight_decay=args.weight_decay
-        )
+        optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     else:
         raise ValueError
     
