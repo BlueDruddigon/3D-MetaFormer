@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 
 from utils.conv_utils import get_conv_layer
+
 from .backbones.swin import SwinTransformer
 from .unetr import UnetrBasicBlock
 
@@ -131,23 +132,9 @@ class SwinUNETR(nn.Module):
           backbone_only=True
         )
         
-        self.encoders = nn.ModuleList()
         self.decoders = nn.ModuleList()
         
         for i_layer in range(self.num_layers):
-            self.encoders.append(
-              SwinEncoderBlock(
-                spatial_dims,
-                in_channels=in_chans if i_layer == 0 else embed_dim * 2 ** (i_layer - 1),
-                out_channels=embed_dim if i_layer == 0 else embed_dim * 2 ** (i_layer - 1),
-                kernel_size=3,
-                stride=1,
-                norm_layer=norm_layer,
-                act_layer=act_layer,
-                dropout_rate=proj_drop_rate,
-                is_residual=True
-              )
-            )
             self.decoders.append(
               SwinDecoderBlock(
                 spatial_dims,
@@ -163,10 +150,10 @@ class SwinUNETR(nn.Module):
               )
             )
         
-        self.bottleneck = UnetrBasicBlock(
+        self.in_proj = UnetrBasicBlock(
           spatial_dims,
-          embed_dim * 2 ** num_layers,
-          embed_dim * 2 ** num_layers,
+          in_chans,
+          embed_dim,
           kernel_size=3,
           stride=1,
           norm_layer=norm_layer,
@@ -174,25 +161,16 @@ class SwinUNETR(nn.Module):
           dropout_rate=proj_drop_rate,
           is_residual=True
         )
-        
         self.out_proj = get_conv_layer(spatial_dims, embed_dim, num_classes, kernel_size=1)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         hidden_states = self.backbone(x)
         
-        # Encode
-        encoded_features = []
-        for i in range(self.num_layers):
-            if i == 0:
-                enc_out = self.encoders[i](x)
-            else:
-                enc_out = self.encoders[i](hidden_states[i - 1])
-            encoded_features.append(enc_out)
-        
-        # Bottleneck
-        dec_out = self.bottleneck(hidden_states[-1])
+        input_features = self.in_proj(x)
+        encoded_features = [input_features, *hidden_states]
         
         # Decode
+        dec_out = encoded_features[-1]
         for i in reversed(range(self.num_layers)):
             skip = encoded_features[i]
             dec_out = self.decoders[i](dec_out, skip)
