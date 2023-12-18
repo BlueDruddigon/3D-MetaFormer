@@ -1,10 +1,11 @@
-from typing import Callable, Optional, Sequence, Union
+from typing import Callable, Sequence, Union
 
 import torch
 import torch.nn as nn
 from timm.layers import to_ntuple
 
 from utils.conv_utils import get_conv_layer
+
 from .backbones.vit import VisionTransformer
 from .components import UnetBasicBlock, UnetResBlock
 

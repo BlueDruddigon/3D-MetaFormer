@@ -1,11 +1,11 @@
-from typing import Callable, Optional, Union, Sequence
+from typing import Callable, Optional, Sequence, Union
 
 import torch
 import torch.nn as nn
-from timm.layers import trunc_normal_, DropPath
+from timm.layers import DropPath, trunc_normal_
 from torch.utils.checkpoint import checkpoint
 
-from ..components import MLP, Attention, PatchEmbed
+from ..components import Attention, MLP, PatchEmbed
 
 
 class VitBlock(nn.Module):
