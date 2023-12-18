@@ -2,18 +2,18 @@ import argparse
 import logging
 import os
 import warnings
-from typing import Callable, Optional, Tuple, Union, Sequence
+from typing import Callable, Optional, Sequence, Tuple, Union
 
 import torch
 import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
+from monai.losses.dice import DiceLoss, DiceCELoss
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.lr_scheduler import CosineAnnealingLR, LRScheduler
 from torch.utils.tensorboard.writer import SummaryWriter
 
 from datasets import build_dataset
-from losses.dice import DiceCELoss, DiceLoss
 from models.swin_unetr import SwinUNETR
 from models.unetr import UNETR
 from optimizers.early_stopping import EarlyStopping
@@ -23,7 +23,7 @@ from utils.dist import setup_for_distributed
 
 # disable warn logging
 logging.disable(logging.WARNING)
-warnings.filterwarnings("ignore")
+warnings.filterwarnings('ignore')
 
 
 def parse_args():
@@ -223,25 +223,9 @@ def initialize_algorithm(
     
     # Loss function
     if args.loss_fn == 'dice':
-        criterion = DiceLoss(
-          include_background=args.include_background,
-          sigmoid=args.sigmoid,
-          softmax=args.softmax,
-          reduction=args.reduction,
-          squared_pred=args.squared_pred,
-          smooth=args.smooth
-        )
+        criterion = DiceLoss(to_onehot_y=True, softmax=True, squared_pred=True)
     elif args.loss_fn == 'dice_ce':
-        criterion = DiceCELoss(
-          include_background=args.include_background,
-          sigmoid=args.sigmoid,
-          softmax=args.softmax,
-          reduction=args.reduction,
-          squared_pred=args.squared_pred,
-          smooth=args.smooth,
-          lambda_ce=args.lambda_ce,
-          lambda_dice=args.lambda_dice
-        )
+        criterion = DiceCELoss(to_onehot_y=True, softmax=True, squared_pred=True)
     else:
         raise ValueError
     
