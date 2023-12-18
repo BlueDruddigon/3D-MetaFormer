@@ -170,7 +170,7 @@ class UNETR(nn.Module):
               spatial_dims,
               embed_dim,
               feature_size * 2 ** i,
-              num_layer=num_layers - i,
+              num_layer=num_layers - i - 1,
               kernel_size=3,
               stride=1,
               upsample_kernel_size=2,
@@ -185,7 +185,6 @@ class UNETR(nn.Module):
                 in_channels=feature_size * 2 ** (i + 1) if i < num_layers - 1 else embed_dim,
                 out_channels=feature_size * 2 ** i,
                 kernel_size=3,
-                stride=1,
                 upsample_kernel_size=2,
                 norm_name=norm_name,
                 res_block=False
