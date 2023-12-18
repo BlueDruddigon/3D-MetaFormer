@@ -15,6 +15,8 @@ from torch.cuda.amp import GradScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.lr_scheduler import LRScheduler
 from torch.utils.tensorboard.writer import SummaryWriter
+import torch_xla.core.xla_model as xm
+import torch_xla.distributed.parallel_loader as pl
 from tqdm import tqdm
 
 from optimizers.early_stopping import EarlyStopping
@@ -36,8 +38,8 @@ def train_one_epoch(
     criterion.train()
     
     # status bar
-    args.print_freq = len(loader) // 10
-    pbar = tqdm(enumerate(loader), total=len(loader), miniters=args.print_freq)
+    loader = pl.MpDeviceLoader(loader, args.device)
+    pbar = tqdm(enumerate(loader), total=len(loader))
     
     # metrics logger
     run_loss = AverageMeter()
@@ -66,7 +68,7 @@ def train_one_epoch(
             scaler.update()
         else:
             loss.backward()
-            optimizer.step()
+            xm.step_optimizer(optimizer)
         
         # gather loss values and update metric logger
         if args.distributed:
@@ -80,7 +82,7 @@ def train_one_epoch(
         
         if args.rank == 0:
             # update pbar's status on a primary process
-            s = f'Epoch [{epoch}/{args.max_epochs}][{idx + 1}/{len(loader)}] ' \
+            s = f'Epoch [{epoch}][{idx + 1}/{len(loader)}] ' \
                 f'Time/b: {batch_timer.val:.2f}s ({batch_timer.avg:.2f}s) ' \
                 f'Loss/b: {run_loss.val:.4f} ({run_loss.avg:.4f})'
             pbar.set_description(s)
@@ -107,8 +109,8 @@ def validate_epoch(
     assert post_label is not None
     
     # status bar
-    args.print_freq = len(loader) // 10
-    pbar = tqdm(enumerate(loader), total=len(loader), miniters=args.print_freq)
+    loader = pl.MpDeviceLoader(loader, args.device)
+    pbar = tqdm(enumerate(loader), total=len(loader))
     
     valid_acc = AverageMeter()
     batch_timer = AverageMeter()
@@ -126,7 +128,7 @@ def validate_epoch(
         with torch.autocast(device_type=args.device.type, enabled=args.amp):
             logits: torch.Tensor = model(images)
         
-        if not logits.is_cuda:  # make both `targets` and `logits` in same device
+        if not logits.is_cuda:  # make both `targets` and `logits` in the same device
             labels = labels.cpu()
         
         post_labels = [post_label(t) for t in decollate_batch(labels)]
@@ -148,7 +150,7 @@ def validate_epoch(
         
         if args.rank == 0:
             # update pbar's status on a primary process
-            s = f'Validation [{epoch}/{args.max_epochs}][{idx + 1}/{len(loader)}] ' \
+            s = f'Validation [{epoch}][{idx + 1}/{len(loader)}] ' \
                 f'Time/b: {batch_timer.val:.2f}s ({batch_timer.avg:.2f}s) ' \
                 f'Accuracy/b: {valid_acc.val:.4f} ({valid_acc.avg:.4f})'
             pbar.set_description(s)

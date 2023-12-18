@@ -7,6 +7,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch_xla.utils.serialization as xser
 from timm.layers import to_ntuple
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.lr_scheduler import LRScheduler
@@ -46,8 +47,7 @@ def save_checkpoint(
     if not filename:
         filename = f'weights-{epoch}-{current_acc:.2f}.pth'
     filepath = os.path.join(args.save_dir, filename)
-    if args.rank == 0:
-        torch.save(save_dict, filepath)
+    xser.save(save_dict, filepath)
     print('Saved checkpoint', filepath)
 
 

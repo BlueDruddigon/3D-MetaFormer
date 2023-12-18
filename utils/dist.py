@@ -1,5 +1,6 @@
 from typing import List, Union, Optional
 
+import torch_xla.core.xla_model as xm
 import numpy as np
 import torch
 import torch.distributed as dist
@@ -56,12 +57,12 @@ def dist_all_gather(
     with torch.no_grad():
         if is_valid is not None:
             is_valid_list = [torch.zeros_like(is_valid) for _ in range(world_size)]
-            dist.all_gather(is_valid_list, is_valid)
+            xm.all_gather(is_valid_list, is_valid)
             is_valid = [x.item() for x in is_valid_list]
         
         for tensor in tensor_list:
             gather_list = [torch.zeros_like(tensor) for _ in range(world_size)]
-            dist.all_gather(gather_list, tensor)
+            xm.all_gather(gather_list, tensor)
             if valid_batch_size is not None:
                 gather_list = gather_list[:valid_batch_size]
             elif is_valid is not None:

@@ -8,6 +8,10 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
+import torch_xla.experimental.pjrt_backend
+import torch_xla.utils.serialization as xser
+import torch_xla.core.xla_model as xm
+import torch_xla.distributed.xla_multiprocessing as xmp
 from monai.losses.dice import DiceLoss, DiceCELoss
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.lr_scheduler import CosineAnnealingLR, LRScheduler
@@ -24,6 +28,11 @@ from utils.dist import setup_for_distributed
 # disable warn logging
 logging.disable(logging.WARNING)
 warnings.filterwarnings('ignore')
+
+# Temporary hack: remove some TPU environment variables to support multiprocessing
+# These will be set later by xmp.spawn.
+os.environ.pop('TPU_PROCESS_ADDRESSES')
+os.environ.pop('CLOUD_TPU_TASK_ID')
 
 
 def parse_args():
@@ -138,7 +147,7 @@ def parse_args():
     parser.add_argument('--batch-size', type=int, default=1, help='Number of batch size')
     parser.add_argument('--resume', type=str, default='', help='Resume from checkpointing')
     parser.add_argument('--exp-dir', type=str, default='./runs', help='Experimental Directory')
-    parser.add_argument('--amp', action='store_false', help='Whether using AMP or not')
+    parser.add_argument('--amp', action='store_true', help='Whether using AMP or not')
     parser.add_argument('--print-freq', type=int, default=100, help='Print Frequency of tqdm')
     parser.add_argument('--eval-freq', type=int, default=5, help='Evaluate Frequency')
     parser.add_argument('--save-freq', type=int, default=5, help='Save checkpoint Frequency')
@@ -159,7 +168,7 @@ def load_checkpoint(
     args.start_epoch = 0
     args.best_valid_acc = 0.
     if args.resume:
-        ckpt = torch.load(args.resume, map_location='cpu')
+        ckpt = xser.load(args.resume, map_location='cpu')
         if args.distributed:  # DDP
             model.module.load_state_dict(ckpt['state_dict'])
         else:  # nn.Module
@@ -215,7 +224,7 @@ def initialize_algorithm(
         )
         
         if args.pretrained:
-            ckpt = torch.load(args.pretrained, map_location='cpu')
+            ckpt = xser.load(args.pretrained, map_location='cpu')
             model.backbone.load_state_dict(ckpt['state_dict'])
             print(f'Loaded pre-trained weights from {args.pretrained}')
     else:
@@ -263,20 +272,18 @@ def initialize_algorithm(
     return args, model, criterion, optimizer, lr_scheduler, early_stop_callback
 
 
-def main(args: argparse.Namespace):
+def main_worker(rank: int, args: argparse.Namespace):
     # init distributed training
     if args.distributed:
-        dist.init_process_group(backend=args.dist_backend)
-        args.rank = int(os.environ['LOCAL_RANK'])
-        args.world_size = int(os.environ['WORLD_SIZE'])
-        setup_for_distributed(args.rank == 0)
+        dist.init_process_group(backend='xla', init_method='pjrt://')
+        args.rank = rank
+        # setup_for_distributed(args.rank == 0)
     else:
         args.rank = 0
         args.world_size = 1
     
     # prepare a device with current rank
-    torch.cuda.set_device(args.rank)
-    args.device = torch.device(f'cuda:{args.rank}')
+    args.device = xm.xla_device()
     
     # init model, loss_fn, optimizer, lr_scheduler
     args, model, criterion, optimizer, lr_scheduler, early_stop_callback = initialize_algorithm(args)
@@ -287,7 +294,13 @@ def main(args: argparse.Namespace):
     
     # wrap model with DDP if distributed training is available
     if args.distributed:
-        model = DDP(model, device_ids=[args.rank], output_device=args.rank, find_unused_parameters=True)
+        model = DDP(
+          model,
+          device_ids=[args.rank],
+          output_device=args.rank,
+          find_unused_parameters=True,
+          gradient_as_bucket_view=True
+        )
     
     # load from checkpointing if available
     args, model, optimizer, lr_scheduler = load_checkpoint(args, model, optimizer, lr_scheduler)
@@ -322,6 +335,13 @@ def main(args: argparse.Namespace):
     return acc
 
 
-if __name__ == '__main__':
+def main():
     args = parse_args()
-    main(args)
+    if args.distributed:
+        xmp.spawn(main_worker, args=(args, ), start_method='fork')
+    else:
+        main_worker(rank=0, args=args)
+
+
+if __name__ == '__main__':
+    main()

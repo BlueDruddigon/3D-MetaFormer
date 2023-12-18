@@ -1,6 +1,6 @@
 import argparse
 
-from monai.data.dataloader import DataLoader
+from monai.data.thread_buffer import ThreadDataLoader
 
 from .btcv import AbdomenDataset
 from .samplers import CustomSampler
@@ -26,7 +26,7 @@ def build_dataset(args: argparse.Namespace):
     
     # data sampler and dataloader
     train_sampler = CustomSampler(train_set) if args.distributed else None
-    train_loader = DataLoader(
+    train_loader = ThreadDataLoader(
       train_set,
       batch_size=args.batch_size,
       shuffle=train_sampler is None,
@@ -37,7 +37,7 @@ def build_dataset(args: argparse.Namespace):
     )
     
     valid_sampler = CustomSampler(valid_set, shuffle=False) if args.distributed else None
-    valid_loader = DataLoader(
+    valid_loader = ThreadDataLoader(
       valid_set,
       batch_size=1,
       shuffle=False,
