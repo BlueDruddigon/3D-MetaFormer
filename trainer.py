@@ -61,21 +61,13 @@ def train_one_epoch(
             loss: torch.Tensor = criterion(logits, labels)
         
         # Back-propagation
-        if args.amp:
+        if args.amp and scaler is not None:
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
         else:
             loss.backward()
             optimizer.step()
-        
-        # if (idx+1) % args.accumulation_steps == 0:
-        #     if args.amp:
-        #         scaler.step(optimizer)
-        #         scaler.update()
-        #     else:
-        #         optimizer.step()
-        #     optimizer.zero_grad()
         
         # gather loss values and update metric logger
         if args.distributed:
