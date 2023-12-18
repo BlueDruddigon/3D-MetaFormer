@@ -4,16 +4,11 @@ import os
 import warnings
 from typing import Callable, Optional, Sequence, Tuple, Union
 
-import torch
-import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
-import torch_xla.experimental.pjrt_backend
 import torch_xla.utils.serialization as xser
 import torch_xla.core.xla_model as xm
-import torch_xla.distributed.xla_multiprocessing as xmp
 from monai.losses.dice import DiceLoss, DiceCELoss
-from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.lr_scheduler import CosineAnnealingLR, LRScheduler
 from torch.utils.tensorboard.writer import SummaryWriter
 
@@ -23,16 +18,12 @@ from models.unetr import UNETR
 from optimizers.early_stopping import EarlyStopping
 from optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 from trainer import run_training
-from utils.dist import setup_for_distributed
 
 # disable warn logging
 logging.disable(logging.WARNING)
 warnings.filterwarnings('ignore')
 
-# Temporary hack: remove some TPU environment variables to support multiprocessing
-# These will be set later by xmp.spawn.
-os.environ.pop('TPU_PROCESS_ADDRESSES')
-os.environ.pop('CLOUD_TPU_TASK_ID')
+os.environ['TPU_NAME'] = 'my-tpu'
 
 
 def parse_args():
@@ -87,7 +78,7 @@ def parse_args():
       '--depths', type=Union[int, Sequence[int]], default=4, help='Number of Encoder and Decoder\'s layers'
     )
     parser.add_argument(
-      '--feature-size', type=int, default=64, help='Feature Dimension for UNETR\'s Encoder and Decoder'
+      '--feature-size', type=int, default=48, help='Feature Dimension for UNETR\'s Encoder and Decoder'
     )
     parser.add_argument(
       '--norm-layer', type=Callable, default=nn.BatchNorm3d, help='Normalization layer using in UNETR'
@@ -155,24 +146,20 @@ def parse_args():
     parser.add_argument('--patience', type=int, default=5, help='Early Stopping Patience')
     
     # Distributed training
-    parser.add_argument('--distributed', action='store_false', help='Whether using distributed training')
+    parser.add_argument('--distributed', action='store_true', help='Whether using distributed training')
     parser.add_argument('--dist-backend', type=str, default='nccl', help='distributed backend')
     
     return parser.parse_args()
 
 
 def load_checkpoint(
-  args: argparse.Namespace, model: Union[nn.Module, DDP], optimizer: optim.Optimizer,
-  lr_scheduler: Optional[LRScheduler]
-) -> Tuple[argparse.Namespace, Union[nn.Module, DDP], optim.Optimizer, Optional[LRScheduler]]:
+  args: argparse.Namespace, model: nn.Module, optimizer: optim.Optimizer, lr_scheduler: Optional[LRScheduler]
+) -> Tuple[argparse.Namespace, nn.Module, optim.Optimizer, Optional[LRScheduler]]:
     args.start_epoch = 0
     args.best_valid_acc = 0.
     if args.resume:
-        ckpt = xser.load(args.resume, map_location='cpu')
-        if args.distributed:  # DDP
-            model.module.load_state_dict(ckpt['state_dict'])
-        else:  # nn.Module
-            model.load_state_dict(ckpt['state_dict'])
+        ckpt = xser.load(args.resume)
+        model.load_state_dict(ckpt['state_dict'])
         if optimizer is not None and 'optimizer' in ckpt.keys():
             optimizer.load_state_dict(ckpt['optimizer'])
         if lr_scheduler is not None and 'lr_scheduler' in ckpt.keys():
@@ -224,17 +211,17 @@ def initialize_algorithm(
         )
         
         if args.pretrained:
-            ckpt = xser.load(args.pretrained, map_location='cpu')
+            ckpt = xser.load(args.pretrained)
             model.backbone.load_state_dict(ckpt['state_dict'])
-            print(f'Loaded pre-trained weights from {args.pretrained}')
+            print(f'Loaded pre-trained weights for backbone from {args.pretrained}')
     else:
         raise ValueError
     
     # Loss function
     if args.loss_fn == 'dice':
-        criterion = DiceLoss(to_onehot_y=True, softmax=True, squared_pred=True)
+        criterion = DiceLoss(to_onehot_y=True, softmax=args.softmax, squared_pred=args.squared_pred)
     elif args.loss_fn == 'dice_ce':
-        criterion = DiceCELoss(to_onehot_y=True, softmax=True, squared_pred=True)
+        criterion = DiceCELoss(to_onehot_y=True, softmax=args.softmax, squared_pred=args.squared_pred)
     else:
         raise ValueError
     
@@ -272,16 +259,7 @@ def initialize_algorithm(
     return args, model, criterion, optimizer, lr_scheduler, early_stop_callback
 
 
-def main_worker(rank: int, args: argparse.Namespace):
-    # init distributed training
-    if args.distributed:
-        dist.init_process_group(backend='xla', init_method='pjrt://')
-        args.rank = rank
-        # setup_for_distributed(args.rank == 0)
-    else:
-        args.rank = 0
-        args.world_size = 1
-    
+def main_worker(args: argparse.Namespace):
     # prepare a device with current rank
     args.device = xm.xla_device()
     
@@ -291,16 +269,6 @@ def main_worker(rank: int, args: argparse.Namespace):
     # move to CUDA
     model = model.to(args.device)
     criterion = criterion.to(args.device)
-    
-    # wrap model with DDP if distributed training is available
-    if args.distributed:
-        model = DDP(
-          model,
-          device_ids=[args.rank],
-          output_device=args.rank,
-          find_unused_parameters=True,
-          gradient_as_bucket_view=True
-        )
     
     # load from checkpointing if available
     args, model, optimizer, lr_scheduler = load_checkpoint(args, model, optimizer, lr_scheduler)
@@ -337,10 +305,7 @@ def main_worker(rank: int, args: argparse.Namespace):
 
 def main():
     args = parse_args()
-    if args.distributed:
-        xmp.spawn(main_worker, args=(args, ), start_method='fork')
-    else:
-        main_worker(rank=0, args=args)
+    main_worker(args=args)
 
 
 if __name__ == '__main__':

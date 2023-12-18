@@ -3,7 +3,6 @@ import argparse
 from monai.data.thread_buffer import ThreadDataLoader
 
 from .btcv import AbdomenDataset
-from .samplers import CustomSampler
 from .transformations import get_default_transforms
 
 
@@ -25,24 +24,22 @@ def build_dataset(args: argparse.Namespace):
     )
     
     # data sampler and dataloader
-    train_sampler = CustomSampler(train_set) if args.distributed else None
     train_loader = ThreadDataLoader(
       train_set,
       batch_size=args.batch_size,
-      shuffle=train_sampler is None,
+      shuffle=True,
       num_workers=args.workers,
-      sampler=train_sampler,
+      sampler=None,
       pin_memory=True,
       persistent_workers=True
     )
     
-    valid_sampler = CustomSampler(valid_set, shuffle=False) if args.distributed else None
     valid_loader = ThreadDataLoader(
       valid_set,
       batch_size=1,
       shuffle=False,
       num_workers=args.workers,
-      sampler=valid_sampler,
+      sampler=None,
       pin_memory=True,
       persistent_workers=True
     )

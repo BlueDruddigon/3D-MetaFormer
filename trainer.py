@@ -1,33 +1,28 @@
 import argparse
 import time
-from typing import Callable, Optional, Union
+from typing import Callable, Optional
 
 import numpy as np
 import torch
-import torch.distributed as dist
 from monai.data import DataLoader
 from monai.data.utils import decollate_batch
 from monai.metrics.meandice import DiceMetric
 from monai.transforms import AsDiscrete
-from torch import nn as nn
-from torch import optim as optim
+import torch.nn as nn
+import torch.optim as optim
 from torch.cuda.amp import GradScaler
-from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.lr_scheduler import LRScheduler
 from torch.utils.tensorboard.writer import SummaryWriter
 import torch_xla.core.xla_model as xm
-import torch_xla.distributed.parallel_loader as pl
 from tqdm import tqdm
 
 from optimizers.early_stopping import EarlyStopping
-from utils.dist import dist_all_gather
 from utils.misc import AverageMeter, save_checkpoint
 
 
 def train_one_epoch(
   model: nn.Module,
   criterion: nn.Module,
-  scaler: GradScaler,
   loader: DataLoader,
   optimizer: optim.Optimizer,
   epoch: int,
@@ -38,7 +33,6 @@ def train_one_epoch(
     criterion.train()
     
     # status bar
-    loader = pl.MpDeviceLoader(loader, args.device)
     pbar = tqdm(enumerate(loader), total=len(loader))
     
     # metrics logger
@@ -62,30 +56,19 @@ def train_one_epoch(
         
         # Back-propagation
         optimizer.zero_grad()
-        if args.amp:
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-        else:
-            loss.backward()
-            xm.step_optimizer(optimizer)
+        loss.backward()
+        xm.step_optimizer(optimizer)
         
-        # gather loss values and update metric logger
-        if args.distributed:
-            loss_list = dist_all_gather([loss], out_numpy=True, is_valid=idx < loader.sampler.valid_length)
-            n_samples = args.batch_size * args.world_size
-            run_loss.update(np.mean(np.mean(np.stack(loss_list, axis=0), axis=0), axis=0), n=n_samples)
-        else:
-            run_loss.update(loss.item(), n=args.batch_size)
+        run_loss.update(loss.item(), n=args.batch_size)
         batch_timer.update(time.time() - end)
         end = time.time()
         
-        if args.rank == 0:
-            # update pbar's status on a primary process
-            s = f'Epoch [{epoch}][{idx + 1}/{len(loader)}] ' \
-                f'Time/b: {batch_timer.val:.2f}s ({batch_timer.avg:.2f}s) ' \
-                f'Loss/b: {run_loss.val:.4f} ({run_loss.avg:.4f})'
-            pbar.set_description(s)
+        # update pbar's status on a primary process
+        pbar.set_description(
+          f'Epoch [{epoch}][{idx + 1}/{len(loader)}] '
+          f'Time/b: {batch_timer.val:.2f}s ({batch_timer.avg:.2f}s) '
+          f'Loss/b: {run_loss.val:.4f} ({run_loss.avg:.4f})'
+        )
     
     return run_loss.avg
 
@@ -109,7 +92,6 @@ def validate_epoch(
     assert post_label is not None
     
     # status bar
-    loader = pl.MpDeviceLoader(loader, args.device)
     pbar = tqdm(enumerate(loader), total=len(loader))
     
     valid_acc = AverageMeter()
@@ -128,9 +110,6 @@ def validate_epoch(
         with torch.autocast(device_type=args.device.type, enabled=args.amp):
             logits: torch.Tensor = model(images)
         
-        if not logits.is_cuda:  # make both `targets` and `logits` in the same device
-            labels = labels.cpu()
-        
         post_labels = [post_label(t) for t in decollate_batch(labels)]
         post_outputs = [post_pred(t) for t in decollate_batch(logits)]
         
@@ -138,28 +117,23 @@ def validate_epoch(
         acc = acc.to(args.device)
         
         # gather valid metrics and update metric loggers
-        if args.distributed:
-            acc_list = dist_all_gather([acc], out_numpy=True, is_valid=idx < loader.sampler.valid_length)
-            n_samples = args.batch_size * args.world_size
-            valid_acc.update(np.mean([np.nanmean(l) for l in acc_list]), n=n_samples)
-        else:
-            acc_list = acc.detach().cpu().numpy()
-            valid_acc.update(np.mean([np.nanmean(l) for l in acc_list]), n=args.batch_size)
+        acc_list = acc.detach().cpu().numpy()
+        valid_acc.update(np.mean([np.nanmean(l) for l in acc_list]), n=args.batch_size)
         batch_timer.update(time.time() - end)
         end = time.time()
         
-        if args.rank == 0:
-            # update pbar's status on a primary process
-            s = f'Validation [{epoch}][{idx + 1}/{len(loader)}] ' \
-                f'Time/b: {batch_timer.val:.2f}s ({batch_timer.avg:.2f}s) ' \
-                f'Accuracy/b: {valid_acc.val:.4f} ({valid_acc.avg:.4f})'
-            pbar.set_description(s)
+        # update pbar's status on a primary process
+        pbar.set_description(
+          f'Validation [{epoch}][{idx + 1}/{len(loader)}] '
+          f'Time/b: {batch_timer.val:.2f}s ({batch_timer.avg:.2f}s) '
+          f'Accuracy/b: {valid_acc.val:.4f} ({valid_acc.avg:.4f})'
+        )
     
     return valid_acc.avg
 
 
 def run_training(
-  model: Union[nn.Module, DDP],
+  model: nn.Module,
   criterion: nn.Module,
   optimizer: optim.Optimizer,
   train_loader: DataLoader,
@@ -183,21 +157,13 @@ def run_training(
     # training
     best_valid_acc = args.best_valid_acc
     for epoch in range(args.start_epoch, args.max_epochs):
-        if args.distributed:  # update dataloader sampler's epoch and synchronize between all processes
-            train_loader.sampler.set_epoch(epoch)
-            dist.barrier()
         # train in current epoch
-        train_loss = train_one_epoch(
-          model, criterion, scaler=scaler, loader=train_loader, optimizer=optimizer, epoch=epoch, args=args
-        )
-        if args.rank == 0 and writer is not None:  # tensorboard log for `train_loss` if available and in master process
+        train_loss = train_one_epoch(model, criterion, loader=train_loader, optimizer=optimizer, epoch=epoch, args=args)
+        if writer is not None:  # tensorboard log for `train_loss` if available and in primary process
             writer.add_scalar('train_loss', train_loss, epoch)
         
         # Validation
         if (epoch+1) % args.eval_freq == 0:
-            if args.distributed:  # wait for synchronization
-                dist.barrier()
-            
             # compute the validation metric
             valid_avg_acc = validate_epoch(
               model,
