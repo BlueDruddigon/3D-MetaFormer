@@ -204,6 +204,14 @@ def initialize_algorithm(
     else:
         raise ValueError
     
+    for m in model.parameters():
+        if isinstance(m, (nn.BatchNorm3d, nn.LayerNorm, nn.InstanceNorm3d)):
+            if m.weight is not None:
+                m.weight.requires_grad_(False)
+            if m.bias is not None:
+                m.bias.requires_grad_(False)
+            m.eval()
+    
     pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print('Total parameters count', pytorch_total_params)
     
