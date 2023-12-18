@@ -2,7 +2,7 @@ import argparse
 import logging
 import os
 import warnings
-from typing import Callable, Optional, Sequence, Tuple, Union
+from typing import Optional, Sequence, Tuple, Union
 
 import torch
 import torch.distributed as dist
@@ -205,7 +205,7 @@ def initialize_algorithm(
         raise ValueError
     
     for m in model.parameters():
-        if isinstance(m, (nn.BatchNorm3d, nn.LayerNorm, nn.InstanceNorm3d)):
+        if isinstance(m, nn.LayerNorm):
             if m.weight is not None:
                 m.weight.requires_grad_(False)
             if m.bias is not None:
