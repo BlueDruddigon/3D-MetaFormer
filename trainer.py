@@ -53,12 +53,11 @@ def train_one_epoch(
         # set device for inputs and targets
         images, labels = images.to(args.device), labels.to(args.device)
         
-        optimizer.zero_grad()
+        for param in model.parameters():
+            param.grad = None
         
         with torch.autocast(device_type=args.device.type, enabled=args.amp):
             logits: torch.Tensor = model(images)
-            del images
-            torch.cuda.empty_cache()
             loss: torch.Tensor = criterion(logits, labels)
         
         # Back-propagation
@@ -87,6 +86,9 @@ def train_one_epoch(
               f'Time/b: {batch_timer.val:.2f}s ({batch_timer.avg:.2f}s) '
               f'Loss/b: {run_loss.val:.4f} ({run_loss.avg:.4f})'
             )
+    
+    for param in model.parameters():
+        param.grad = None
     
     return run_loss.avg
 
