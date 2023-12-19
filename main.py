@@ -157,6 +157,7 @@ def load_checkpoint(
             optimizer.load_state_dict(ckpt['optimizer'])
         if lr_scheduler is not None and 'lr_scheduler' in ckpt.keys():
             lr_scheduler.load_state_dict(ckpt['lr_scheduler'])
+            lr_scheduler.step(epoch=ckpt['epoch'])
         args.start_epoch = ckpt['epoch'] + 1
         args.best_valid_acc = ckpt['best_valid_acc']
         print(f'Resume training from epoch {args.start_epoch}')
@@ -270,7 +271,9 @@ def main(args: argparse.Namespace):
     
     # wrap model with DDP if distributed training is available
     if args.distributed:
-        model = DDP(model, device_ids=[args.rank])
+        if args.norm_name == 'batch':
+            model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+        model = DDP(model, device_ids=[args.rank], output_device=args.rank)
     
     # load from checkpointing if available
     args, model, optimizer, lr_scheduler = load_checkpoint(args, model, optimizer, lr_scheduler)
