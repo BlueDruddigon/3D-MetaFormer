@@ -51,16 +51,14 @@ def train_one_epoch(
             images, labels = batch_data['image'], batch_data['label']
         
         # set device for inputs and targets
-        images = images.to(args.device)
+        images, labels = images.to(args.device), labels.to(args.device)
         
         optimizer.zero_grad()
         
         with torch.autocast(device_type=args.device.type, enabled=args.amp):
             logits: torch.Tensor = model(images)
-            logits = logits.to('cpu')
+            del images
             torch.cuda.empty_cache()
-            logits = logits.to(args.device)
-            labels = labels.to(args.device)
             loss: torch.Tensor = criterion(logits, labels)
         
         # Back-propagation
