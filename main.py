@@ -270,7 +270,6 @@ def main(args: argparse.Namespace):
     
     # wrap model with DDP if distributed training is available
     if args.distributed:
-        model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
         model = DDP(model, device_ids=[args.rank])
     
     # load from checkpointing if available
