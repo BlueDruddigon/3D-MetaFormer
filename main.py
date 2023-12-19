@@ -16,7 +16,6 @@ from torch.utils.tensorboard.writer import SummaryWriter
 from datasets import build_dataset
 from models.swin_unetr import SwinUNETR
 from models.unetr import UNETR
-from optimizers.early_stopping import EarlyStopping
 from optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 from trainer import run_training
 from utils.dist import setup_for_distributed
@@ -82,6 +81,13 @@ def parse_args():
     )
     parser.add_argument('--pretrained', type=str, default='', help='Path to backbone\'s pre-trained weights')
     parser.add_argument('--use-checkpoint', action='store_true', help='Whether to use checkpointing in block')
+    parser.add_argument(
+      '--norm-name',
+      choices=['instance', 'batch', 'layer'],
+      default='instance',
+      type=str,
+      help='Normalization Layer\'s name'
+    )
     
     # Optimization's Hyperparams
     parser.add_argument(
@@ -127,8 +133,6 @@ def parse_args():
     parser.add_argument('--amp', action='store_true', help='Whether using AMP or not')
     parser.add_argument('--eval-freq', type=int, default=5, help='Evaluate Frequency')
     parser.add_argument('--save-freq', type=int, default=5, help='Save checkpoint Frequency')
-    parser.add_argument('--early-stop', action='store_true', help='Whether using Early Stopping')
-    parser.add_argument('--patience', type=int, default=5, help='Early Stopping Patience')
     
     # Distributed training
     parser.add_argument('--distributed', action='store_true', help='Whether using distributed training')
@@ -164,7 +168,7 @@ def load_checkpoint(
 
 def initialize_algorithm(
   args: argparse.Namespace
-) -> Tuple[argparse.Namespace, nn.Module, nn.Module, optim.Optimizer, Optional[LRScheduler], Optional[EarlyStopping]]:
+) -> Tuple[argparse.Namespace, nn.Module, nn.Module, optim.Optimizer, Optional[LRScheduler]]:
     # Define model
     if args.model_name == 'UNETR':
         model = UNETR(
@@ -180,6 +184,7 @@ def initialize_algorithm(
           drop_path_rate=args.drop_path_rate,
           attn_drop_rate=args.attn_drop,
           proj_drop_rate=args.proj_drop,
+          norm_name=args.norm_name,
           use_checkpoint=args.use_checkpoint
         )
     elif args.model_name == 'SwinUNETR':
@@ -194,6 +199,7 @@ def initialize_algorithm(
           attn_drop_rate=args.attn_drop,
           proj_drop_rate=args.proj_drop,
           patch_norm=args.patch_norm,
+          norm_name=args.norm_name,
           use_checkpoint=args.use_checkpoint
         )
         
@@ -203,14 +209,6 @@ def initialize_algorithm(
             print(f'Loaded pre-trained weights from {args.pretrained}')
     else:
         raise ValueError
-    
-    for m in model.parameters():
-        if isinstance(m, nn.LayerNorm):
-            if m.weight is not None:
-                m.weight.requires_grad_(False)
-            if m.bias is not None:
-                m.bias.requires_grad_(False)
-            m.eval()
     
     pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print('Total parameters count', pytorch_total_params)
@@ -245,12 +243,7 @@ def initialize_algorithm(
     else:
         lr_scheduler = None
     
-    if args.early_stop:
-        early_stop_callback = EarlyStopping(mode='max', patience=args.patience)
-    else:
-        early_stop_callback = None
-    
-    return args, model, criterion, optimizer, lr_scheduler, early_stop_callback
+    return args, model, criterion, optimizer, lr_scheduler
 
 
 def main(args: argparse.Namespace):
@@ -269,7 +262,7 @@ def main(args: argparse.Namespace):
     args.device = torch.device(f'cuda:{args.rank}')
     
     # init model, loss_fn, optimizer, lr_scheduler
-    args, model, criterion, optimizer, lr_scheduler, early_stop_callback = initialize_algorithm(args)
+    args, model, criterion, optimizer, lr_scheduler = initialize_algorithm(args)
     
     # move to CUDA
     model = model.to(args.device)
@@ -277,6 +270,7 @@ def main(args: argparse.Namespace):
     
     # wrap model with DDP if distributed training is available
     if args.distributed:
+        model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
         model = DDP(model, device_ids=[args.rank])
     
     # load from checkpointing if available
@@ -307,7 +301,6 @@ def main(args: argparse.Namespace):
       args=args,
       scheduler=lr_scheduler,
       writer=writer,
-      callbacks=early_stop_callback
     )
     return acc
 

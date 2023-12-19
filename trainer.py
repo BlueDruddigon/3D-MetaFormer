@@ -17,7 +17,6 @@ from torch.optim.lr_scheduler import LRScheduler
 from torch.utils.tensorboard.writer import SummaryWriter
 from tqdm import tqdm
 
-from optimizers.early_stopping import EarlyStopping
 from utils.dist import dist_all_gather
 from utils.misc import AverageMeter, save_checkpoint
 
@@ -52,12 +51,13 @@ def train_one_epoch(
             images, labels = batch_data['image'], batch_data['label']
         
         # set device for inputs and targets
-        images, labels = images.to(args.device), labels.to(args.device)
+        images = images.to(args.device)
         
         optimizer.zero_grad()
         
         with torch.autocast(device_type=args.device.type, enabled=args.amp):
             logits: torch.Tensor = model(images)
+            logits = logits.to('cpu')
             loss: torch.Tensor = criterion(logits, labels)
         
         # Back-propagation
@@ -81,10 +81,11 @@ def train_one_epoch(
         
         if args.rank == 0:
             # update pbar's status on a primary process
-            s = f'Epoch [{epoch}/{args.max_epochs}][{idx + 1}/{len(loader)}] ' \
-                f'Time/b: {batch_timer.val:.2f}s ({batch_timer.avg:.2f}s) ' \
-                f'Loss/b: {run_loss.val:.4f} ({run_loss.avg:.4f})'
-            pbar.set_description(s)
+            pbar.set_description(
+              f'Epoch [{epoch}/{args.max_epochs}][{idx + 1}/{len(loader)}] '
+              f'Time/b: {batch_timer.val:.2f}s ({batch_timer.avg:.2f}s) '
+              f'Loss/b: {run_loss.val:.4f} ({run_loss.avg:.4f})'
+            )
     
     return run_loss.avg
 
@@ -148,10 +149,11 @@ def validate_epoch(
         
         if args.rank == 0:
             # update pbar's status on a primary process
-            s = f'Validation [{epoch}/{args.max_epochs}][{idx + 1}/{len(loader)}] ' \
-                f'Time/b: {batch_timer.val:.2f}s ({batch_timer.avg:.2f}s) ' \
-                f'Accuracy/b: {valid_acc.val:.4f} ({valid_acc.avg:.4f})'
-            pbar.set_description(s)
+            pbar.set_description(
+              f'Validation [{epoch}/{args.max_epochs}][{idx + 1}/{len(loader)}] '
+              f'Time/b: {batch_timer.val:.2f}s ({batch_timer.avg:.2f}s) '
+              f'Accuracy/b: {valid_acc.val:.4f} ({valid_acc.avg:.4f})'
+            )
     
     return valid_acc.avg
 
@@ -164,7 +166,6 @@ def run_training(
   valid_loader: DataLoader,
   args: argparse.Namespace,
   scheduler: Optional[LRScheduler] = None,
-  callbacks: Optional[EarlyStopping] = None,
   writer: Optional[SummaryWriter] = None,
 ):
     scaler = None
@@ -233,23 +234,6 @@ def run_training(
                   optimizer=optimizer,
                   scheduler=scheduler
                 )
-            
-            if callbacks is not None and callbacks.step(valid_avg_acc):  # check if the training must early stop
-                print(
-                  f'Early Stopping at epoch {epoch}, '
-                  f'current valid_acc: {valid_avg_acc:.4f}, best_valid_acc: {best_valid_acc:.4f}'
-                )
-                save_checkpoint(
-                  model,
-                  epoch,
-                  args,
-                  filename='model_last.pth',
-                  best_acc=best_valid_acc,
-                  current_acc=valid_avg_acc,
-                  optimizer=optimizer,
-                  scheduler=scheduler
-                )
-                break
             
             if (epoch+1) % args.save_freq == 0 and not update_best_valid:  # save checkpoint frequently
                 save_checkpoint(
