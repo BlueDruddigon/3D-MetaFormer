@@ -1,7 +1,7 @@
 import argparse
 import os
 import random
-from typing import Optional, Union, Any, Sequence
+from typing import Any, Optional, Sequence, Union
 
 import numpy as np
 import torch
@@ -71,11 +71,6 @@ def seed_everything(seed: int) -> None:
 class AverageMeter:
     """ Metrics tracking meter """
     def __init__(self) -> None:
-        self.val = None
-        self.avg = None
-        self.count = None
-        self.sum = None
-        
         self.reset()
     
     def reset(self) -> None:
@@ -86,6 +81,6 @@ class AverageMeter:
     
     def update(self, value: float, n: int = 1) -> None:
         self.val = value
-        self.count += n
-        self.sum += value * n
+        self.count = self.count + n
+        self.sum = self.sum + value*n
         self.avg = np.where(self.count > 0, self.sum / self.count, self.sum)

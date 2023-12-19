@@ -153,8 +153,7 @@ class Attention(nn.Module):
         qkv = qkv.permute(2, 0, 3, 1, 4)
         
         q, k, v = qkv[0].float(), qkv[1].float(), qkv[2].float()
-        attn = q @ k.transpose(-2, -1)
-        attn *= self.scale
+        attn = (q @ k.transpose(-2, -1)) * self.scale
         attn = self.attn_drop(self.softmax(attn))
         
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
@@ -196,11 +195,13 @@ class WindowAttention(nn.Module):
             coords_flatten = torch.flatten(coords, 1)
             relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]
             relative_coords = relative_coords.permute(1, 2, 0).contiguous()
-            relative_coords[:, :, 0] += self.window_size[0] - 1
-            relative_coords[:, :, 1] += self.window_size[1] - 1
-            relative_coords[:, :, 2] += self.window_size[2] - 1
-            relative_coords[:, :, 0] *= (2 * self.window_size[1] - 1) * (2 * self.window_size[2] - 1)
-            relative_coords[:, :, 1] *= 2 * self.window_size[2] - 1
+            relative_coords[:, :, 0] = relative_coords[:, :, 0] + self.window_size[0] - 1
+            relative_coords[:, :, 1] = relative_coords[:, :, 1] + self.window_size[1] - 1
+            relative_coords[:, :, 2] = relative_coords[:, :, 2] + self.window_size[2] - 1
+            relative_coords[:, :,
+                            0] = relative_coords[:, :,
+                                                 0] * (2 * self.window_size[1] - 1) * (2 * self.window_size[2] - 1)
+            relative_coords[:, :, 1] = relative_coords[:, :, 1] * (2 * self.window_size[2] - 1)
         elif self.spatial_dims == 2:
             coords_h = torch.arange(self.window_size[0])
             coords_w = torch.arange(self.window_size[1])
@@ -211,9 +212,9 @@ class WindowAttention(nn.Module):
             coords_flatten = torch.flatten(coords, 1)
             relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]
             relative_coords = relative_coords.permute(1, 2, 0).contiguous()
-            relative_coords[:, :, 0] += self.window_size[0] - 1
-            relative_coords[:, :, 1] += self.window_size[1] - 1
-            relative_coords[:, :, 0] *= 2 * self.window_size[1] - 1
+            relative_coords[:, :, 0] = relative_coords[:, :, 0] + self.window_size[0] - 1
+            relative_coords[:, :, 1] = relative_coords[:, :, 1] + self.window_size[1] - 1
+            relative_coords[:, :, 0] = relative_coords[:, :, 0] * (2 * self.window_size[1] - 1)
         else:
             raise ValueError
         
@@ -236,7 +237,7 @@ class WindowAttention(nn.Module):
         attn = (q @ k.transpose(-2, -1)) * self.scale
         relative_position_bias = self.relative_position_bias_table[self.relative_position_index[:N, :N].reshape(-1)]
         relative_position_bias = relative_position_bias.view(N, N, -1).permute(2, 0, 1).contiguous()
-        attn += relative_position_bias.unsqueeze(0)
+        attn = attn + relative_position_bias.unsqueeze(0)
         
         if mask is not None:
             num_windows = mask.shape[0]
