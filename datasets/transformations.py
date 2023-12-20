@@ -28,9 +28,7 @@ def get_default_transforms(args: argparse.Namespace) -> Dict[str, T.Compose]:
         allow_smaller=True,
         image_threshold=0
       ),
-      T.ResizeWithPadOrCropd(
-        keys=['image', 'label'], spatial_size=(args.roi_x, args.roi_y, args.roi_z), mode='constant'
-      ),
+      T.SpatialPadd(keys=['image', 'label'], spatial_size=(args.roi_x, args.roi_y, args.roi_z), mode='symmetric'),
       T.RandFlipd(keys=['image', 'label'], spatial_axis=0, prob=args.rand_flip_prob),
       T.RandFlipd(keys=['image', 'label'], spatial_axis=1, prob=args.rand_flip_prob),
       T.RandFlipd(keys=['image', 'label'], spatial_axis=2, prob=args.rand_flip_prob),
