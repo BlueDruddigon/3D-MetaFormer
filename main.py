@@ -171,6 +171,14 @@ def initialize_algorithm(
   args: argparse.Namespace
 ) -> Tuple[argparse.Namespace, nn.Module, nn.Module, optim.Optimizer, Optional[LRScheduler]]:
     # Define model
+    if args.norm_name == 'batch':
+        norm_layer = nn.BatchNorm3d
+    elif args.norm_layer == 'instance':
+        norm_layer = nn.InstanceNorm3d
+    elif args.norm_name == 'layer':
+        norm_layer = nn.LayerNorm
+    else:
+        raise ValueError
     if args.model_name == 'UNETR':
         model = UNETR(
           args.in_channels,
@@ -185,7 +193,7 @@ def initialize_algorithm(
           drop_path_rate=args.drop_path_rate,
           attn_drop_rate=args.attn_drop,
           proj_drop_rate=args.proj_drop,
-          norm_name=args.norm_name,
+          norm_layer=norm_layer,
           use_checkpoint=args.use_checkpoint
         )
     elif args.model_name == 'SwinUNETR':
@@ -200,7 +208,7 @@ def initialize_algorithm(
           attn_drop_rate=args.attn_drop,
           proj_drop_rate=args.proj_drop,
           patch_norm=args.patch_norm,
-          norm_name=args.norm_name,
+          norm_layer=norm_layer,
           use_checkpoint=args.use_checkpoint
         )
         
