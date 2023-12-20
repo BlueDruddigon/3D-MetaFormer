@@ -1,55 +1,11 @@
-from typing import Callable, Sequence, Union
+from typing import Sequence
 
 import torch
 import torch.nn as nn
-
-from utils.conv_utils import get_conv_layer
+from monai.networks.blocks.dynunet_block import UnetOutBlock
+from monai.networks.blocks.unetr_block import UnetrBasicBlock, UnetrUpBlock
 
 from .backbones.swin import SwinTransformer
-from .blocks.unetr import UnetrBasicBlock
-
-
-class SwinDecoderBlock(nn.Module):
-    def __init__(
-      self,
-      spatial_dims: int,
-      in_channels: int,
-      out_channels: int,
-      kernel_size: Union[int, Sequence[int]] = 3,
-      stride: Union[int, Sequence[int]] = 1,
-      upsample_kernel_size: Union[int, Sequence[int]] = 2,
-      norm_layer: Callable[..., nn.Module] = nn.InstanceNorm3d,
-      act_layer: Callable[..., nn.Module] = nn.LeakyReLU,
-      dropout_rate: float = 0.,
-      is_residual: bool = True
-    ) -> None:
-        super(SwinDecoderBlock, self).__init__()
-        
-        self.deconv = get_conv_layer(
-          spatial_dims,
-          in_channels,
-          out_channels,
-          kernel_size=upsample_kernel_size,
-          stride=upsample_kernel_size,
-          is_transposed=True
-        )
-        self.conv_block = UnetrBasicBlock(
-          spatial_dims,
-          out_channels * 2,
-          out_channels,
-          kernel_size=kernel_size,
-          stride=stride,
-          norm_layer=norm_layer,
-          act_layer=act_layer,
-          dropout_rate=dropout_rate,
-          is_residual=is_residual
-        )
-    
-    def forward(self, x: torch.Tensor, skip: torch.Tensor) -> torch.Tensor:
-        x = self.deconv(x)
-        x = torch.cat([x, skip], dim=1)
-        x = self.conv_block(x)
-        return x
 
 
 class SwinUNETR(nn.Module):
@@ -69,8 +25,7 @@ class SwinUNETR(nn.Module):
       attn_drop_rate: float = 0.,
       proj_drop_rate: float = 0.,
       drop_path_rate: float = 0.1,
-      norm_layer: Callable[..., nn.Module] = nn.InstanceNorm3d,
-      act_layer: Callable[..., nn.Module] = nn.LeakyReLU,
+      norm_name: str = 'instance',
       patch_norm: bool = False,
       use_checkpoint: bool = False,
       spatial_dims: int = 3
@@ -109,32 +64,20 @@ class SwinUNETR(nn.Module):
         
         for i_layer in range(self.num_layers):
             self.decoders.append(
-              SwinDecoderBlock(
+              UnetrUpBlock(
                 spatial_dims,
                 in_channels=embed_dim * 2 ** i_layer,
                 out_channels=embed_dim if i_layer == 0 else embed_dim * 2 ** (i_layer - 1),
                 kernel_size=3,
-                stride=1,
                 upsample_kernel_size=2,
-                norm_layer=norm_layer,
-                act_layer=act_layer,
-                dropout_rate=proj_drop_rate,
-                is_residual=True
+                norm_name=norm_name,
               )
             )
         
         self.in_proj = UnetrBasicBlock(
-          spatial_dims,
-          in_chans,
-          embed_dim,
-          kernel_size=3,
-          stride=1,
-          norm_layer=norm_layer,
-          act_layer=act_layer,
-          dropout_rate=proj_drop_rate,
-          is_residual=True
+          spatial_dims, in_chans, embed_dim, kernel_size=3, stride=1, norm_name=norm_name, res_block=True
         )
-        self.out_proj = get_conv_layer(spatial_dims, embed_dim, num_classes, kernel_size=1)
+        self.out_proj = UnetOutBlock(spatial_dims, in_channels=embed_dim, out_channels=num_classes)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         hidden_states = self.backbone(x)

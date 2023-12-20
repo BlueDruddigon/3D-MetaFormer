@@ -1,114 +1,12 @@
-from typing import Callable, Sequence, Union
+from typing import Sequence
 
 import torch
 import torch.nn as nn
+from monai.networks.blocks.dynunet_block import UnetOutBlock
+from monai.networks.blocks.unetr_block import UnetrBasicBlock, UnetrPrUpBlock, UnetrUpBlock
 from timm.layers import to_ntuple
 
-from utils.conv_utils import get_conv_layer
-
 from .backbones.vit import VisionTransformer
-from .blocks.unetr import UnetrBasicBlock
-
-
-class UnetrEncoderBlock(nn.Sequential):
-    def __init__(
-      self,
-      spatial_dims: int,
-      in_channels: int,
-      out_channels: int,
-      num_blocks: int = 1,
-      kernel_size: Union[int, Sequence[int]] = 3,
-      stride: Union[int, Sequence[int]] = 1,
-      upsample_kernel_size: Union[int, Sequence[int]] = 2,
-      norm_layer: Callable[..., nn.Module] = nn.InstanceNorm3d,
-      act_layer: Callable[..., nn.Module] = nn.LeakyReLU,
-      dropout_rate: float = 0.
-    ) -> None:
-        layers = nn.ModuleList([
-          get_conv_layer(
-            spatial_dims,
-            in_channels,
-            out_channels,
-            kernel_size=upsample_kernel_size,
-            stride=upsample_kernel_size,
-            is_transposed=True
-          ),
-          UnetrBasicBlock(
-            spatial_dims,
-            out_channels,
-            out_channels,
-            kernel_size=kernel_size,
-            stride=stride,
-            norm_layer=norm_layer,
-            act_layer=act_layer,
-            dropout_rate=dropout_rate,
-          ),
-        ])
-        post_blocks = nn.ModuleList([
-          nn.Sequential(
-            get_conv_layer(
-              spatial_dims,
-              out_channels,
-              out_channels,
-              kernel_size=upsample_kernel_size,
-              stride=upsample_kernel_size,
-              is_transposed=True
-            ),
-            UnetrBasicBlock(
-              spatial_dims,
-              out_channels,
-              out_channels,
-              kernel_size=kernel_size,
-              stride=stride,
-              norm_layer=norm_layer,
-              act_layer=act_layer,
-              dropout_rate=dropout_rate
-            )
-          ) for _ in range(num_blocks - 1)  # minus 1 because we've formed the very first module before
-        ])
-        layers.extend(post_blocks)
-        super().__init__(*layers)
-
-
-class UnetrDecoderBlock(nn.Module):
-    def __init__(
-      self,
-      spatial_dims: int,
-      in_channels: int,
-      out_channels: int,
-      kernel_size: Union[int, Sequence[int]] = 3,
-      stride: Union[int, Sequence[int]] = 1,
-      upsample_kernel_size: Union[int, Sequence[int]] = 2,
-      norm_layer: Callable[..., nn.Module] = nn.InstanceNorm3d,
-      act_layer: Callable[..., nn.Module] = nn.LeakyReLU,
-      dropout_rate: float = 0.,
-    ) -> None:
-        super().__init__()
-        
-        self.deconv = get_conv_layer(
-          spatial_dims,
-          in_channels,
-          out_channels,
-          kernel_size=upsample_kernel_size,
-          stride=upsample_kernel_size,
-          is_transposed=True
-        )
-        
-        self.conv_block = UnetrBasicBlock(
-          spatial_dims,
-          out_channels * 2,
-          out_channels,
-          kernel_size=kernel_size,
-          stride=stride,
-          norm_layer=norm_layer,
-          act_layer=act_layer,
-          dropout_rate=dropout_rate
-        )
-    
-    def forward(self, x: torch.Tensor, skip: torch.Tensor) -> torch.Tensor:
-        x = self.deconv(x)
-        x = torch.cat([x, skip], dim=1)
-        return self.conv_block(x)
 
 
 class UNETR(nn.Module):
@@ -126,8 +24,7 @@ class UNETR(nn.Module):
       proj_drop_rate: float = 0.,
       drop_path_rate: float = 0.1,
       num_heads: int = 12,
-      norm_layer: Callable[..., nn.Module] = nn.InstanceNorm3d,
-      act_layer: Callable[..., nn.Module] = nn.ReLU6,
+      norm_name: str = 'instance',
       use_checkpoint: bool = False,
       spatial_dims: int = 3,
     ) -> None:
@@ -165,42 +62,33 @@ class UNETR(nn.Module):
         
         for i in range(num_layers):
             enc_layer = UnetrBasicBlock(
-              spatial_dims,
-              in_chans,
-              feature_size,
-              kernel_size=3,
-              stride=1,
-              norm_layer=norm_layer,
-              act_layer=act_layer,
-              dropout_rate=proj_drop_rate
-            ) if i == 0 else UnetrEncoderBlock(
+              spatial_dims, in_chans, feature_size, kernel_size=3, stride=1, norm_name=norm_name, res_block=True
+            ) if i == 0 else UnetrPrUpBlock(
               spatial_dims,
               embed_dim,
               feature_size * 2 ** i,
-              num_blocks=num_layers - i - 1,
+              num_layer=num_layers - i - 1,
               kernel_size=3,
               stride=1,
               upsample_kernel_size=2,
-              norm_layer=norm_layer,
-              act_layer=act_layer,
-              dropout_rate=proj_drop_rate
+              norm_name=norm_name,
+              conv_block=True,
+              res_block=False
             )
             self.encoders.append(enc_layer)
             self.decoders.append(
-              UnetrDecoderBlock(
+              UnetrUpBlock(
                 spatial_dims,
                 in_channels=feature_size * 2 ** (i + 1) if i < num_layers - 1 else embed_dim,
                 out_channels=feature_size * 2 ** i,
                 kernel_size=3,
-                stride=1,
                 upsample_kernel_size=2,
-                norm_layer=norm_layer,
-                act_layer=act_layer,
-                dropout_rate=proj_drop_rate
+                norm_name=norm_name,
+                res_block=False
               )
             )
         
-        self.out_proj = get_conv_layer(spatial_dims, feature_size, num_classes, kernel_size=1)
+        self.out_proj = UnetOutBlock(spatial_dims, in_channels=feature_size, out_channels=num_classes)
         self.proj_axes = (0, spatial_dims + 1) + tuple(d + 1 for d in range(spatial_dims))
         self.proj_view_shape = list(self.input_resolution) + [embed_dim]
     
