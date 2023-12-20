@@ -1,12 +1,14 @@
 import argparse
 import time
-from typing import Callable, Optional, Union
+from functools import partial
+from typing import Any, Callable, Optional, Union
 
 import numpy as np
 import torch
 import torch.distributed as dist
 from monai.data import DataLoader
 from monai.data.utils import decollate_batch
+from monai.inferers.utils import sliding_window_inference
 from monai.metrics.meandice import DiceMetric
 from monai.transforms import AsDiscrete
 from torch import nn as nn
@@ -96,17 +98,16 @@ def train_one_epoch(
 @torch.no_grad()
 def validate_epoch(
   model: nn.Module,
-  criterion: nn.Module,
   loader: DataLoader,
   epoch: int,
   acc_func: nn.Module,
   args: argparse.Namespace,
+  model_inferer: Optional[Any] = None,
   post_label: Optional[Callable] = None,
   post_pred: Optional[Callable] = None,
 ) -> float:
     # set evaluate mode for model and loss_fn
     model.eval()
-    criterion.eval()
     
     assert post_pred is not None
     assert post_label is not None
@@ -128,7 +129,10 @@ def validate_epoch(
         images, labels = images.to(args.device), labels.to(args.device)
         
         with torch.autocast(device_type=args.device.type, enabled=args.amp):
-            logits: torch.Tensor = model(images)
+            if model_inferer is not None:
+                logits = model_inferer(images)
+            else:
+                logits = model(images)
         
         if not logits.is_cuda:  # make both `targets` and `logits` in same device
             labels = labels.cpu()
@@ -137,16 +141,20 @@ def validate_epoch(
         post_outputs = [post_pred(t) for t in decollate_batch(logits)]
         
         acc = acc_func(y_pred=post_outputs, y=post_labels)
+        acc, not_nans = acc_func.aggregate()
         acc = acc.to(args.device)
         
         # gather valid metrics and update metric loggers
         if args.distributed:
-            acc_list = dist_all_gather([acc], out_numpy=True, is_valid=idx < loader.sampler.valid_length)
-            n_samples = args.batch_size * args.world_size
-            valid_acc.update(np.mean([np.nanmean(l) for l in acc_list]), n=n_samples)
+            acc_list, not_nans_list = dist_all_gather(
+              [acc, not_nans],
+              out_numpy=True,
+              is_valid=idx < loader.sampler.valid_length,
+            )
+            for al, nl in zip(acc_list, not_nans_list):
+                valid_acc.update(al, n=nl)
         else:
-            acc_list = acc.detach().cpu().numpy()
-            valid_acc.update(np.mean([np.nanmean(l) for l in acc_list]), n=args.batch_size)
+            valid_acc.update(acc.cpu().numpy(), n=not_nans.cpu().numpy())
         batch_timer.update(time.time() - end)
         end = time.time()
         
@@ -155,7 +163,7 @@ def validate_epoch(
             pbar.set_description(
               f'Validation [{epoch}/{args.max_epochs}][{idx + 1}/{len(loader)}] '
               f'Time/b: {batch_timer.val:.2f}s ({batch_timer.avg:.2f}s) '
-              f'Accuracy/b: {valid_acc.val:.4f} ({valid_acc.avg:.4f})'
+              f'Accuracy/b: {np.mean(valid_acc.val):.4f} ({np.mean(valid_acc.avg):.4f})'
             )
     
     return valid_acc.avg
@@ -182,6 +190,15 @@ def run_training(
     # Accuracy Metrics
     acc_func = DiceMetric(include_background=True, reduction='mean', get_not_nans=True)
     
+    # model inferer
+    model_inferer = partial(
+      sliding_window_inference,
+      roi_size=(args.roi_x, args.roi_y, args.roi_z),
+      sw_batch_size=args.sw_batch_size,
+      predictor=model,
+      overlap=args.infer_overlap,
+    )
+    
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.enabled = True
     
@@ -206,14 +223,15 @@ def run_training(
             # compute the validation metric
             valid_avg_acc = validate_epoch(
               model,
-              criterion,
               valid_loader,
               epoch=epoch,
-              args=args,
               acc_func=acc_func,
+              model_inferer=model_inferer,
+              args=args,
               post_pred=post_pred,
               post_label=post_label
             )
+            valid_avg_acc = np.mean(valid_avg_acc)
             
             print(f'Final Validation Acc: {valid_avg_acc:.6f}')
             if writer is not None:  # tensorboard logs if available

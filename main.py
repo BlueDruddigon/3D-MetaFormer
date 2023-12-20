@@ -88,6 +88,8 @@ def parse_args():
       type=str,
       help='Normalization Layer\'s name'
     )
+    parser.add_argument('--sw-batch-size', type=int, default=4, help='Number of sliding window batch size')
+    parser.add_argument('--infer-overlap', type=float, default=0.5, help='Sliding window inference overlap')
     
     # Optimization's Hyperparams
     parser.add_argument(
