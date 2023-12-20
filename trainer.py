@@ -1,7 +1,7 @@
 import argparse
 import time
 from functools import partial
-from typing import Any, Callable, Optional, Union
+from typing import Callable, Optional, Union
 
 import numpy as np
 import torch
@@ -102,7 +102,7 @@ def validate_epoch(
   epoch: int,
   acc_func: nn.Module,
   args: argparse.Namespace,
-  model_inferer: Optional[Any] = None,
+  model_inferer: Optional[Union[Callable, partial]] = None,
   post_label: Optional[Callable] = None,
   post_pred: Optional[Callable] = None,
 ) -> float:
