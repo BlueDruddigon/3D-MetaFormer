@@ -98,8 +98,8 @@ class SwinTransformerBlock(nn.Module):
       attn_drop: float = 0.,
       proj_drop: float = 0.,
       drop_path: float = 0.,
-      act_layer: Callable = nn.GELU,
-      norm_layer: Callable = nn.LayerNorm
+      act_layer: Callable[..., nn.Module] = nn.GELU,
+      norm_layer: Callable[..., nn.Module] = nn.LayerNorm
     ) -> None:
         super().__init__()
         
@@ -207,9 +207,9 @@ class BasicLayer(nn.Module):
       attn_drop: float = 0.,
       proj_drop: float = 0.,
       drop_path: Union[float, Sequence[float]] = 0.,
-      norm_layer: Callable = nn.LayerNorm,
-      act_layer: Callable = nn.GELU,
-      downsample: Optional[Callable] = None,
+      norm_layer: Callable[..., nn.Module] = nn.LayerNorm,
+      act_layer: Callable[..., nn.Module] = nn.GELU,
+      downsample: Optional[Callable[..., nn.Module]] = None,
       use_checkpoint: bool = False
     ) -> None:
         super().__init__()
@@ -272,8 +272,8 @@ class SwinTransformer(nn.Module):
       attn_drop_rate: float = 0.,
       proj_drop_rate: float = 0.,
       drop_path_rate: float = 0.1,
-      norm_layer: Callable = nn.LayerNorm,
-      act_layer: Callable = nn.GELU,
+      norm_layer: Callable[..., nn.Module] = nn.LayerNorm,
+      act_layer: Callable[..., nn.Module] = nn.GELU,
       ape: bool = False,
       patch_norm: bool = False,
       use_checkpoint: bool = False,

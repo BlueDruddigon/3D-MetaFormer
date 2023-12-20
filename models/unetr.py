@@ -2,13 +2,12 @@ from typing import Callable, Sequence, Union
 
 import torch
 import torch.nn as nn
-from monai.networks.blocks.dynunet_block import UnetOutBlock
-from monai.networks.blocks.unetr_block import UnetrBasicBlock, UnetrPrUpBlock, UnetrUpBlock
 from timm.layers import to_ntuple
 
 from utils.conv_utils import get_conv_layer
 
 from .backbones.vit import VisionTransformer
+from .blocks.unetr import UnetrBasicBlock
 
 
 class UnetrEncoderBlock(nn.Sequential):
@@ -21,8 +20,8 @@ class UnetrEncoderBlock(nn.Sequential):
       kernel_size: Union[int, Sequence[int]] = 3,
       stride: Union[int, Sequence[int]] = 1,
       upsample_kernel_size: Union[int, Sequence[int]] = 2,
-      norm_layer: Callable = nn.BatchNorm3d,
-      act_layer: Callable = nn.LeakyReLU,
+      norm_layer: Callable[..., nn.Module] = nn.InstanceNorm3d,
+      act_layer: Callable[..., nn.Module] = nn.LeakyReLU,
       dropout_rate: float = 0.
     ) -> None:
         layers = nn.ModuleList([
@@ -80,8 +79,8 @@ class UnetrDecoderBlock(nn.Module):
       kernel_size: Union[int, Sequence[int]] = 3,
       stride: Union[int, Sequence[int]] = 1,
       upsample_kernel_size: Union[int, Sequence[int]] = 2,
-      norm_layer: Callable = nn.BatchNorm3d,
-      act_layer: Callable = nn.LeakyReLU,
+      norm_layer: Callable[..., nn.Module] = nn.InstanceNorm3d,
+      act_layer: Callable[..., nn.Module] = nn.LeakyReLU,
       dropout_rate: float = 0.,
     ) -> None:
         super().__init__()
@@ -127,7 +126,8 @@ class UNETR(nn.Module):
       proj_drop_rate: float = 0.,
       drop_path_rate: float = 0.1,
       num_heads: int = 12,
-      norm_name: str = 'instance',
+      norm_layer: Callable[..., nn.Module] = nn.InstanceNorm3d,
+      act_layer: Callable[..., nn.Module] = nn.ReLU6,
       use_checkpoint: bool = False,
       spatial_dims: int = 3,
     ) -> None:
@@ -165,33 +165,42 @@ class UNETR(nn.Module):
         
         for i in range(num_layers):
             enc_layer = UnetrBasicBlock(
-              spatial_dims, in_chans, feature_size, kernel_size=3, stride=1, norm_name=norm_name, res_block=False
-            ) if i == 0 else UnetrPrUpBlock(
+              spatial_dims,
+              in_chans,
+              feature_size,
+              kernel_size=3,
+              stride=1,
+              norm_layer=norm_layer,
+              act_layer=act_layer,
+              dropout_rate=proj_drop_rate
+            ) if i == 0 else UnetrEncoderBlock(
               spatial_dims,
               embed_dim,
               feature_size * 2 ** i,
-              num_layer=num_layers - i - 1,
+              num_blocks=num_layers - i - 1,
               kernel_size=3,
               stride=1,
               upsample_kernel_size=2,
-              norm_name=norm_name,
-              conv_block=True,
-              res_block=False
+              norm_layer=norm_layer,
+              act_layer=act_layer,
+              dropout_rate=proj_drop_rate
             )
             self.encoders.append(enc_layer)
             self.decoders.append(
-              UnetrUpBlock(
+              UnetrDecoderBlock(
                 spatial_dims,
                 in_channels=feature_size * 2 ** (i + 1) if i < num_layers - 1 else embed_dim,
                 out_channels=feature_size * 2 ** i,
                 kernel_size=3,
+                stride=1,
                 upsample_kernel_size=2,
-                norm_name=norm_name,
-                res_block=False
+                norm_layer=norm_layer,
+                act_layer=act_layer,
+                dropout_rate=proj_drop_rate
               )
             )
         
-        self.out_proj = UnetOutBlock(spatial_dims, in_channels=feature_size, out_channels=num_classes)
+        self.out_proj = get_conv_layer(spatial_dims, feature_size, num_classes, kernel_size=1)
         self.proj_axes = (0, spatial_dims + 1) + tuple(d + 1 for d in range(spatial_dims))
         self.proj_view_shape = list(self.input_resolution) + [embed_dim]
     

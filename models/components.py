@@ -16,7 +16,7 @@ class MLP(nn.Sequential):
       in_features: int,
       hidden_features: Optional[int] = None,
       out_features: Optional[int] = None,
-      act_layer: Callable = nn.GELU,
+      act_layer: Callable[..., nn.Module] = nn.GELU,
       dropout_rate: float = 0.
     ) -> None:
         """2-layer MLP in Sequential
@@ -46,7 +46,7 @@ class PatchEmbed(nn.Module):
       spatial_dims: int = 2,
       in_chans: int = 3,
       embed_dim: int = 768,
-      norm_layer: Optional[Callable] = None,
+      norm_layer: Optional[Callable[..., nn.Module]] = None,
     ) -> None:
         """Patch Embedding with positional encodings based on spatial dimensions
 
@@ -90,7 +90,9 @@ class PatchEmbed(nn.Module):
 
 
 class PatchMerging(nn.Module):
-    def __init__(self, input_resolution: Sequence[int], dim: int, norm_layer: Callable = nn.LayerNorm) -> None:
+    def __init__(
+      self, input_resolution: Sequence[int], dim: int, norm_layer: Callable[..., nn.Module] = nn.LayerNorm
+    ) -> None:
         super().__init__()
         self.input_resolution = input_resolution
         self.dim = dim
