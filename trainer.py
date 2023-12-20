@@ -48,7 +48,7 @@ def train_one_epoch(
         if isinstance(batch_data, list):
             images, labels = batch_data
         else:
-            images, labels = batch_data['image'], batch_data['label']
+            images, labels = batch_data['image'].as_tensor(), batch_data['label'].as_tensor()
         
         # set device for inputs and targets
         images, labels = images.to(args.device), labels.to(args.device)
@@ -123,7 +123,7 @@ def validate_epoch(
         if isinstance(batch_data, list):
             images, labels = batch_data
         else:
-            images, labels = batch_data['image'], batch_data['label']
+            images, labels = batch_data['image'].as_tensor(), batch_data['label'].as_tensor()
         
         images, labels = images.to(args.device), labels.to(args.device)
         
