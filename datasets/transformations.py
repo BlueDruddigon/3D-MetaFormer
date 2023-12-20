@@ -48,13 +48,10 @@ def get_default_transforms(args: argparse.Namespace) -> Dict[str, T.Compose]:
         keys=['image', 'label'], pixdim=(args.space_x, args.space_y, args.space_z), mode=('bilinear', 'nearest')
       ),
       T.ScaleIntensityRanged(
-        keys=['image', 'label'], a_min=args.a_min, a_max=args.a_max, b_min=args.b_min, b_max=args.b_max, clip=True
+        keys='image', a_min=args.a_min, a_max=args.a_max, b_min=args.b_min, b_max=args.b_max, clip=True
       ),
       T.CropForegroundd(keys=['image', 'label'], allow_smaller=True, source_key='image'),
       T.EnsureTyped(keys=['image', 'label'], track_meta=False),
-      T.ResizeWithPadOrCropd(
-        keys=['image', 'label'], spatial_size=(args.roi_x, args.roi_y, args.roi_z), mode='constant'
-      ),
       T.ToTensord(keys=['image', 'label'])
     ])
     
