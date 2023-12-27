@@ -8,8 +8,8 @@ from .transformations import get_default_transforms
 
 def build_dataset(args: argparse.Namespace):
     transforms = get_default_transforms(args)
-    train_files = load_decathlon_datalist('./data.json', True, 'training')
-    valid_files = load_decathlon_datalist('./data.json', True, 'validation')
+    train_files = load_decathlon_datalist('./datasets/data.json', True, 'training')
+    valid_files = load_decathlon_datalist('./datasets/data.json', True, 'validation')
     train_ds = CacheDataset(
       train_files,
       transform=transforms['train'],
