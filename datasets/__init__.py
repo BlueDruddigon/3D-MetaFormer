@@ -1,33 +1,34 @@
 import argparse
 
-from monai.data.dataloader import DataLoader
+from monai.data import CacheDataset, DataLoader, load_decathlon_datalist
 
-from .btcv import AbdomenDataset
 from .samplers import CustomSampler
 from .transformations import get_default_transforms
 
 
 def build_dataset(args: argparse.Namespace):
     transforms = get_default_transforms(args)
-    train_set = AbdomenDataset(
-      args.data_root,
-      transform=transforms,
-      is_train=True,
-      train_cache_num=args.train_cache_num,
+    train_files = load_decathlon_datalist('./data.json', True, 'training')
+    valid_files = load_decathlon_datalist('./data.json', True, 'validation')
+    train_ds = CacheDataset(
+      train_files,
+      transform=transforms['train'],
+      cache_num=args.train_cache_num,
+      cache_rate=1.0,
       num_workers=args.workers
     )
-    valid_set = AbdomenDataset(
-      args.data_root,
-      transform=transforms,
-      is_train=False,
-      valid_cache_num=args.valid_cache_num,
+    valid_ds = CacheDataset(
+      valid_files,
+      transform=transforms['valid'],
+      cache_num=args.valid_cache_num,
+      cache_rate=1.0,
       num_workers=args.workers
     )
     
     # data sampler and dataloader
-    train_sampler = CustomSampler(train_set) if args.distributed else None
+    train_sampler = CustomSampler(train_ds) if args.distributed else None
     train_loader = DataLoader(
-      train_set,
+      train_ds,
       batch_size=args.batch_size,
       shuffle=train_sampler is None,
       num_workers=args.workers,
@@ -36,9 +37,9 @@ def build_dataset(args: argparse.Namespace):
       persistent_workers=True
     )
     
-    valid_sampler = CustomSampler(valid_set, shuffle=False) if args.distributed else None
+    valid_sampler = CustomSampler(valid_ds, shuffle=False) if args.distributed else None
     valid_loader = DataLoader(
-      valid_set,
+      valid_ds,
       batch_size=1,
       shuffle=False,
       num_workers=args.workers,

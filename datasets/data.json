@@ -1,0 +1,176 @@
+{
+    "description": "btcv yucheng",
+    "labels": {
+        "0": "background",
+        "1": "spleen",
+        "2": "rkid",
+        "3": "lkid",
+        "4": "gall",
+        "5": "eso",
+        "6": "liver",
+        "7": "sto",
+        "8": "aorta",
+        "9": "IVC",
+        "10": "veins",
+        "11": "pancreas",
+        "12": "rad",
+        "13": "lad"
+    },
+    "licence": "yt",
+    "modality": {
+        "0": "CT"
+    },
+    "name": "btcv",
+    "numTest": 20,
+    "numTraining": 80,
+    "reference": "Vanderbilt University",
+    "release": "1.0 06/08/2015",
+    "tensorImageSize": "3D",
+    "test": [
+        "/tmp/RawData/test/image0061.nii.gz",
+        "/tmp/RawData/test/image0062.nii.gz",
+        "/tmp/RawData/test/image0063.nii.gz",
+        "/tmp/RawData/test/image0064.nii.gz",
+        "/tmp/RawData/test/image0065.nii.gz",
+        "/tmp/RawData/test/image0066.nii.gz",
+        "/tmp/RawData/test/image0067.nii.gz",
+        "/tmp/RawData/test/image0068.nii.gz",
+        "/tmp/RawData/test/image0069.nii.gz",
+        "/tmp/RawData/test/image0070.nii.gz",
+        "/tmp/RawData/test/image0071.nii.gz",
+        "/tmp/RawData/test/image0072.nii.gz",
+        "/tmp/RawData/test/image0073.nii.gz",
+        "/tmp/RawData/test/image0074.nii.gz",
+        "/tmp/RawData/test/image0075.nii.gz",
+        "/tmp/RawData/test/image0076.nii.gz",
+        "/tmp/RawData/test/image0077.nii.gz",
+        "/tmp/RawData/test/image0078.nii.gz",
+        "/tmp/RawData/test/image0079.nii.gz",
+        "/tmp/RawData/test/image0080.nii.gz"
+    ],
+    "training": [
+        {
+            "image": "/tmp/RawData/train/image/image0001.nii.gz",
+            "label": "/tmp/RawData/train/label/label0001.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0002.nii.gz",
+            "label": "/tmp/RawData/train/label/label0002.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0003.nii.gz",
+            "label": "/tmp/RawData/train/label/label0003.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0004.nii.gz",
+            "label": "/tmp/RawData/train/label/label0004.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0005.nii.gz",
+            "label": "/tmp/RawData/train/label/label0005.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0006.nii.gz",
+            "label": "/tmp/RawData/train/label/label0006.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0007.nii.gz",
+            "label": "/tmp/RawData/train/label/label0007.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0008.nii.gz",
+            "label": "/tmp/RawData/train/label/label0008.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0009.nii.gz",
+            "label": "/tmp/RawData/train/label/label0009.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0010.nii.gz",
+            "label": "/tmp/RawData/train/label/label0010.nii.gz"
+        },
+
+        {
+            "image": "/tmp/RawData/train/image/image0021.nii.gz",
+            "label": "/tmp/RawData/train/label/label0021.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0022.nii.gz",
+            "label": "/tmp/RawData/train/label/label0022.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0023.nii.gz",
+            "label": "/tmp/RawData/train/label/label0023.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0024.nii.gz",
+            "label": "/tmp/RawData/train/label/label0024.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0025.nii.gz",
+            "label": "/tmp/RawData/train/label/label0025.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0026.nii.gz",
+            "label": "/tmp/RawData/train/label/label0026.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0027.nii.gz",
+            "label": "/tmp/RawData/train/label/label0027.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0028.nii.gz",
+            "label": "/tmp/RawData/train/label/label0028.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0029.nii.gz",
+            "label": "/tmp/RawData/train/label/label0029.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0030.nii.gz",
+            "label": "/tmp/RawData/train/label/label0030.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0031.nii.gz",
+            "label": "/tmp/RawData/train/label/label0031.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0032.nii.gz",
+            "label": "/tmp/RawData/train/label/label0032.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0033.nii.gz",
+            "label": "/tmp/RawData/train/label/label0033.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0034.nii.gz",
+            "label": "/tmp/RawData/train/label/label0034.nii.gz"
+        }
+    ],
+    "validation": [
+        {
+            "image": "/tmp/RawData/train/image/image0035.nii.gz",
+            "label": "/tmp/RawData/train/label/label0035.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0036.nii.gz",
+            "label": "/tmp/RawData/train/label/label0036.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0037.nii.gz",
+            "label": "/tmp/RawData/train/label/label0037.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0038.nii.gz",
+            "label": "/tmp/RawData/train/label/label0038.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0039.nii.gz",
+            "label": "/tmp/RawData/train/label/label0039.nii.gz"
+        },
+        {
+            "image": "/tmp/RawData/train/image/image0040.nii.gz",
+            "label": "/tmp/RawData/train/label/label0040.nii.gz"
+        }
+    ]
+}
