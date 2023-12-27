@@ -358,7 +358,7 @@ class SwinTransformer(nn.Module):
         if self.ape:
             x = x + self.absolute_pos_embed
         x = self.pos_drop(x)
-        x = x.view(x.shape[0], self.embed_dim, *self.input_resolution)
+        x = x.reshape(x.shape[0], self.embed_dim, *self.input_resolution)
         hidden_states_out.append(x)
         
         for layer in self.layers:
