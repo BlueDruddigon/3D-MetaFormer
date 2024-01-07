@@ -30,6 +30,7 @@ def parse_args():
     
     # Dataset's Hyperparams
     parser.add_argument('--data-root', type=str, default='', help='Path to the root directory of the Dataset')
+    parser.add_argument('--dataset-name', type=str, default='BTCV', help='Name of the dataset to be trained')
     parser.add_argument('--in-channels', type=int, default=1, help='Number of channels in Dataset\'s Volumes')
     parser.add_argument('--num-classes', type=int, default=14, help='Number of classes')
     parser.add_argument('--roi-x', type=int, default=96, help='ROI size in x direction')
