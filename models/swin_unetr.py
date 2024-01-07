@@ -35,7 +35,7 @@ class SwinUNETR(nn.Module):
         assert len(img_size) == spatial_dims
         
         num_layers = len(depths)
-        self.num_layers = num_layers + 1
+        self.num_layers = num_layers + 1  # plus 1 is the stage for the original input volumes
         self.spatial_dims = spatial_dims
         
         self.backbone = SwinTransformer(
@@ -60,9 +60,21 @@ class SwinUNETR(nn.Module):
           backbone_only=True
         )
         
+        self.encoders = nn.ModuleList()
         self.decoders = nn.ModuleList()
         
         for i_layer in range(self.num_layers):
+            self.encoders.append(
+              UnetrBasicBlock(
+                spatial_dims=spatial_dims,
+                in_channels=in_chans if i_layer == 0 else embed_dim * 2 ** (i_layer - 1),
+                out_channels=embed_dim if i_layer == 0 else embed_dim * 2 ** (i_layer - 1),
+                kernel_size=3,
+                stride=1,
+                norm_name=norm_name,
+                res_block=True
+              )
+            )
             self.decoders.append(
               UnetrUpBlock(
                 spatial_dims,
@@ -74,19 +86,31 @@ class SwinUNETR(nn.Module):
               )
             )
         
-        self.in_proj = UnetrBasicBlock(
-          spatial_dims, in_chans, embed_dim, kernel_size=3, stride=1, norm_name=norm_name, res_block=True
+        self.bottleneck = UnetrBasicBlock(
+          spatial_dims,
+          embed_dim * 2 ** num_layers,
+          embed_dim * 2 ** num_layers,
+          kernel_size=3,
+          stride=1,
+          norm_name=norm_name,
+          res_block=True
         )
+        
         self.out_proj = UnetOutBlock(spatial_dims, in_channels=embed_dim, out_channels=num_classes)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         hidden_states = self.backbone(x)
         
-        input_features = self.in_proj(x)
-        encoded_features = [input_features, *hidden_states]
+        # Encode
+        encoded_features = []
+        for i in range(self.num_layers):
+            enc_out = self.encoders[i](x if i == 0 else hidden_states[i - 1])
+            encoded_features.append(enc_out)
+        
+        # Bottleneck
+        dec_out = self.bottleneck(hidden_states[-1])
         
         # Decode
-        dec_out = encoded_features[-1]
         for i in reversed(range(self.num_layers)):
             skip = encoded_features[i]
             dec_out = self.decoders[i](dec_out, skip)
