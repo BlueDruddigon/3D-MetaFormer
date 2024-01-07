@@ -2,14 +2,18 @@ import argparse
 
 from monai.data import CacheDataset, DataLoader, load_decathlon_datalist
 
+from .BTCV.transforms import get_default_transforms
 from .samplers import CustomSampler
-from .transformations import get_default_transforms
 
 
 def build_dataset(args: argparse.Namespace):
-    transforms = get_default_transforms(args)
-    train_files = load_decathlon_datalist('./datasets/data.json', True, 'training')
-    valid_files = load_decathlon_datalist('./datasets/data.json', True, 'validation')
+    if args.dataset_name == 'BTCV':
+        transforms = get_default_transforms(args)
+    else:
+        raise NotImplementedError
+    
+    train_files = load_decathlon_datalist(args.data_root, True, 'training')
+    valid_files = load_decathlon_datalist(args.data_root, True, 'validation')
     train_ds = CacheDataset(
       train_files,
       transform=transforms['train'],
