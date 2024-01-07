@@ -1,5 +1,4 @@
 import argparse
-import time
 from functools import partial
 from typing import Callable, Optional, Union
 
@@ -41,9 +40,7 @@ def train_one_epoch(
     
     # metrics logger
     run_loss = AverageMeter()
-    batch_timer = AverageMeter()
     
-    end = time.time()
     # optimizer.zero_grad()  # zero gradients
     for idx, batch_data in pbar:
         # decode the loader's data
@@ -78,12 +75,9 @@ def train_one_epoch(
             run_loss.update(np.mean(np.mean(np.stack(loss_list, axis=0), axis=0), axis=0), n=n_samples)
         else:
             run_loss.update(loss.item(), n=args.batch_size)
-        batch_timer.update(time.time() - end)
-        end = time.time()
         
         pbar.set_description(
           f'Epoch [{epoch}/{args.max_epochs}][{idx + 1}/{len(loader)}] '
-          f'Time/b: {batch_timer.val:.2f}s ({batch_timer.avg:.2f}s) '
           f'Loss/b: {run_loss.val:.4f} ({run_loss.avg:.4f})'
         )
     
@@ -114,9 +108,7 @@ def validate_epoch(
     pbar = tqdm(enumerate(loader), total=len(loader))
     
     valid_acc = AverageMeter()
-    batch_timer = AverageMeter()
     
-    end = time.time()
     for idx, batch_data in pbar:
         # decode the loader's data
         if isinstance(batch_data, list):
@@ -153,12 +145,9 @@ def validate_epoch(
                 valid_acc.update(al, n=nl)
         else:
             valid_acc.update(acc.cpu().numpy(), n=not_nans.cpu().numpy())
-        batch_timer.update(time.time() - end)
-        end = time.time()
         
         pbar.set_description(
           f'Validation [{epoch}/{args.max_epochs}][{idx + 1}/{len(loader)}] '
-          f'Time/b: {batch_timer.val:.2f}s ({batch_timer.avg:.2f}s) '
           f'Accuracy/b: {np.mean(valid_acc.val):.4f} ({np.mean(valid_acc.avg):.4f})'
         )
     
