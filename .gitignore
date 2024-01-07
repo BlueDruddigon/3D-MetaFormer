@@ -7,9 +7,6 @@ __pycache__
 
 # Checkpoints, logs and weights
 ckpt/
-weights/
-runs/**/weights/
-pretrained/
 logs/
 *.pth
 *.pt
