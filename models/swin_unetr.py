@@ -21,7 +21,7 @@ class SwinUNETR(nn.Module):
       num_heads: Sequence[int] = (3, 6, 12, 24),
       embed_dim: int = 64,
       mlp_ratio: float = 4.,
-      qkv_bias: bool = False,
+      qkv_bias: bool = True,
       attn_drop_rate: float = 0.,
       proj_drop_rate: float = 0.,
       drop_path_rate: float = 0.1,
