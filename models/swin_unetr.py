@@ -64,6 +64,20 @@ class SwinUNETR(nn.Module):
         self.decoders = nn.ModuleList()
         
         for i_layer in range(self.num_layers):
+            self.decoders.append(
+              UnetrUpBlock(
+                spatial_dims,
+                in_channels=embed_dim * 2 ** i_layer,
+                out_channels=embed_dim if i_layer == 0 else embed_dim * 2 ** (i_layer - 1),
+                kernel_size=3,
+                upsample_kernel_size=2,
+                norm_name=norm_name,
+              )
+            )
+            if self.num_layers - i_layer == 1:
+                # remove the residual block for the last encoded feature map
+                # according to `https://github.com/Project-MONAI/MONAI/issues/4487`
+                continue
             self.encoders.append(
               UnetrBasicBlock(
                 spatial_dims=spatial_dims,
@@ -73,16 +87,6 @@ class SwinUNETR(nn.Module):
                 stride=1,
                 norm_name=norm_name,
                 res_block=True
-              )
-            )
-            self.decoders.append(
-              UnetrUpBlock(
-                spatial_dims,
-                in_channels=embed_dim * 2 ** i_layer,
-                out_channels=embed_dim if i_layer == 0 else embed_dim * 2 ** (i_layer - 1),
-                kernel_size=3,
-                upsample_kernel_size=2,
-                norm_name=norm_name,
               )
             )
         
@@ -103,9 +107,12 @@ class SwinUNETR(nn.Module):
         
         # Encode
         encoded_features = []
-        for i in range(self.num_layers):
+        for i in range(self.num_layers - 1):
             enc_out = self.encoders[i](x if i == 0 else hidden_states[i - 1])
             encoded_features.append(enc_out)
+        # because of removing residual block for the last encoded feature map,
+        # we just append the raw feature map to the encoded_features list
+        encoded_features.append(hidden_states[-2])
         
         # Bottleneck
         dec_out = self.bottleneck(hidden_states[-1])
