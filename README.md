@@ -1,2 +1,3 @@
 # 3D-MetaFormer
-MetaFormer families with Temporal UNET Architecture
+
+MetaFormer families with Temporal UNETR Architecture for 3D medical image segmentation
