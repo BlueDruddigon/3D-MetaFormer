@@ -1,4 +1,4 @@
-from typing import Callable, Optional, Sequence, Set, Union
+from typing import Callable, List, Optional, Sequence, Set, Union
 
 import torch
 import torch.nn as nn
@@ -247,7 +247,7 @@ class BasicLayer(nn.Module):
         x = x.permute(0, *range(2, self.spatial_dims + 2), 1)
         for blk in self.blocks:
             if self.use_checkpoint:
-                x = checkpoint(blk, x)
+                x = checkpoint(blk, x)  # type: ignore
             else:
                 x = blk(x)
         
@@ -351,7 +351,7 @@ class SwinTransformer(nn.Module):
             nn.init.constant_(m.weight, 1.0)
             nn.init.constant_(m.bias, 0)
     
-    def forward_features(self, x: torch.Tensor, save_state: bool = False) -> torch.Tensor:
+    def forward_features(self, x: torch.Tensor, save_state: bool = False) -> Union[List[torch.Tensor], torch.Tensor]:
         hidden_states_out = []
         
         x = self.patch_embed(x)
@@ -368,9 +368,9 @@ class SwinTransformer(nn.Module):
         x = x.permute(0, *range(2, self.spatial_dims + 2), 1)
         return hidden_states_out if save_state else x
     
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> Union[torch.Tensor, List[torch.Tensor]]:
         if self.classification:
-            x = self.forward_features(x, save_state=False)
+            x = self.forward_features(x, save_state=False)  # type: ignore
             x = self.norm(x)
             x = self.pool(x.transpose(1, 2))
             x = torch.flatten(x, 1)

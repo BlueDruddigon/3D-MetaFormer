@@ -1,4 +1,4 @@
-from typing import List, Union, Optional
+from typing import List, Optional, Union
 
 import numpy as np
 import torch
@@ -27,7 +27,7 @@ def dist_all_gather(
   out_numpy: bool = False,
   world_size: Optional[int] = None,
   no_barrier: bool = False,
-  is_valid: Optional[torch.Tensor] = None
+  is_valid: Optional[Union[torch.Tensor, List[float]]] = None
 ) -> List[List[Union[torch.Tensor, np.ndarray]]]:
     """Performs an all-gather operation in a distributed setting.
 

@@ -3,13 +3,13 @@ from typing import Optional
 
 import numpy as np
 import torch
-from torch.utils.data import Sampler
+from torch.utils.data import Dataset, Sampler
 
 
 class CustomSampler(Sampler):
     def __init__(
       self,
-      dataset,
+      dataset: Dataset,
       num_replicas: Optional[int] = None,
       rank: Optional[int] = None,
       shuffle: bool = True,
@@ -26,6 +26,7 @@ class CustomSampler(Sampler):
         self.shuffle = shuffle
         self.make_even = make_even
         self.dataset = dataset
+        assert num_replicas is not None
         self.num_replicas = num_replicas
         self.rank = rank
         self.epoch = 0

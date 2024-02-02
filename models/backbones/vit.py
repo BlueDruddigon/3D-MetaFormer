@@ -192,7 +192,7 @@ class VisionTransformer(nn.Module):
         hidden_state_out = []
         for idx, func in enumerate(self.blocks):  # forward encoder block using checkpointing
             if self.use_checkpoint:
-                x = checkpoint(func, x)
+                x = checkpoint(func, x)  # type: ignore
             else:
                 x = func(x)
             if not save_state:
@@ -206,7 +206,11 @@ class VisionTransformer(nn.Module):
         x = self.norm_layer(x)
         return hidden_state_out if save_state else x
     
-    def forward(self, x: torch.Tensor, intermediate_levels: Optional[Sequence[int]] = None) -> torch.Tensor:
+    def forward(
+      self,
+      x: torch.Tensor,
+      intermediate_levels: Optional[Sequence[int]] = None,
+    ) -> Union[torch.Tensor, Sequence[torch.Tensor]]:
         """
         :param x: input image tensor - shape (B, C, [D], H, W) where
             B is batch size, C is a channel dimension, [D], H, W is spatial dimensions
@@ -214,7 +218,6 @@ class VisionTransformer(nn.Module):
         :return: extracted feature maps or classification heads
         """
         if self.classification:
-            out = self.forward_features(x, save_state=False)
-            out = self.head(out[:, 0])  # classifier `token` as used by standard language architecture
-            return out
+            x = self.forward_features(x, save_state=False)  # type: ignore
+            return self.head(x[:, 0])  # classifier `token` as used by standard language architecture
         return self.forward_features(x, save_state=True, intermediate_levels=intermediate_levels)
