@@ -1,6 +1,6 @@
 # 3D-MetaFormer
 
-`MetaFormer` families with Temporal `UNETR` Architecture for 3D medical image segmentation
+MetaFormer families with Temporal UNETR Architecture for 3D medical image segmentation
 
 ## Dependencies
 
@@ -17,7 +17,7 @@ pip install -r requirements.txt
 
 ## Models
 
-Please download the Self-supervised pre-trained weights for `SwinUNETR` backbone from this <a href="https://github.com/BlueDruddigon/3D-MetaFormer/releases/download/0.1.1/swin-3d-backbone.pt">link</a>
+Please download the Self-supervised pre-trained weights for SwinUNETR backbone from this <a href="https://github.com/BlueDruddigon/3D-MetaFormer/releases/download/0.1.1/swin-3d-backbone.pt">link</a>
 
 <table>
     <tr>
@@ -69,7 +69,7 @@ To use this data, passing `--data-root` argument when training
 
 # Train
 
-A `SwinUNETR` network with standard hyperparameters for multi-organ semantic segmentation
+A SwinUNETR network with standard hyperparameters for multi-organ semantic segmentation
 
 ```python
 model = SwinUNETR(
@@ -108,7 +108,7 @@ torchrun --nnodes=1 --nproc-per-node=4 main.py \
     --pretrained '' --resume ''
 ```
 
-The command above is initialized with distributed training, using gradient check-pointing and AMP.
+The command above is initialized with distributed training on single machine with 4 GPUs, using gradient check-pointing and AMP.
 
 Optional values:
 
@@ -139,10 +139,10 @@ Use the same config for the small and tiny model size.
 pending implemented
 
 <details>
-    <summary>References:</summary>
+<summary>Resources:</summary>
 
-    * [Self-supervised pre-training of swin transformers for 3d medical image analysis](https://arxiv.org/pdf/2111.14791.pdf)
-    * [Swin UNETR: Swin Transformers for Semantic Segmentation of Brain Tumors in MRI Images](https://arxiv.org/pdf/2201.01266.pdf)
-    * [SwinUNETR training code](https://github.com/Project-MONAI/research-contributions/blob/main/SwinUNETR/BTCV)
+- [Self-supervised pre-training of swin transformers for 3d medical image analysis](https://arxiv.org/pdf/2111.14791.pdf)
+- [Swin UNETR: Swin Transformers for Semantic Segmentation of Brain Tumors in MRI Images](https://arxiv.org/pdf/2201.01266.pdf)
+- [SwinUNETR training code](https://github.com/Project-MONAI/research-contributions/blob/main/SwinUNETR/BTCV)
 
 </details>
