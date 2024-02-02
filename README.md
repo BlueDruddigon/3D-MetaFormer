@@ -30,27 +30,27 @@ Please download the Self-supervised pre-trained weights for `SwinUNETR` backbone
     </tr>
     <tr>
         <td>SwinUNETR base</td>
-        <td>81.86</td>
-        <td>48</td>
-        <td>62.1</td>
-        <td>Yes</td>
-        <td><a href="https://github.com/BlueDruddigon/3D-MetaFormer/releases/download/0.1.2/swin_unetr.base_5000ep_lr2e-4.pt">Download</a></td>
+        <td style="text-align: center;">81.86</td>
+        <td style="text-align: center;">48</td>
+        <td style="text-align: center;">62.1</td>
+        <td style="text-align: center;">Yes</td>
+        <td style="text-align: center;"><a href="https://github.com/BlueDruddigon/3D-MetaFormer/releases/download/0.1.2/swin_unetr.base_5000ep_lr2e-4.pt">Download</a></td>
     </tr>
     <tr>
         <td>SwinUNETR small</td>
-        <td>79.34</td>
-        <td>24</td>
-        <td>15.7</td>
-        <td>No</td>
-        <td><a href="https://github.com/BlueDruddigon/3D-MetaFormer/releases/download/0.1.2/swin_unetr.small_5000ep_lr2e-4.pt">Download</a></td>
+        <td style="text-align: center;">79.34</td>
+        <td style="text-align: center;">24</td>
+        <td style="text-align: center;">15.7</td>
+        <td style="text-align: center;">No</td>
+        <td style="text-align: center;"><a href="https://github.com/BlueDruddigon/3D-MetaFormer/releases/download/0.1.2/swin_unetr.small_5000ep_lr2e-4.pt">Download</a></td>
     </tr>
     <tr>
         <td>SwinUNETR tiny</td>
-        <td>70.35</td>
-        <td>12</td>
-        <td>4.0</td>
-        <td>No</td>
-        <td><a href="https://github.com/BlueDruddigon/3D-MetaFormer/releases/download/0.1.2/swin_unetr.tiny_5000ep_lr2e-4.pt">Download</a></td>
+        <td style="text-align: center;">70.35</td>
+        <td style="text-align: center;">12</td>
+        <td style="text-align: center;">4.0</td>
+        <td style="text-align: center;">No</td>
+        <td style="text-align: center;"><a href="https://github.com/BlueDruddigon/3D-MetaFormer/releases/download/0.1.2/swin_unetr.tiny_5000ep_lr2e-4.pt">Download</a></td>
     </tr>
 </table>
 
