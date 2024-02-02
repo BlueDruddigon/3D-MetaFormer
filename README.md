@@ -17,7 +17,7 @@ pip install -r requirements.txt
 
 ## Models
 
-Please download the Self-supervised pre-trained weights for `SwinUNETR` backbone from this <a href="">link</a>
+Please download the Self-supervised pre-trained weights for `SwinUNETR` backbone from this <a href="https://github.com/BlueDruddigon/3D-MetaFormer/releases/download/0.1.1/swin-3d-backbone.pt">link</a>
 
 <table>
     <tr>
