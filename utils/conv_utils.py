@@ -3,6 +3,8 @@ from typing import Optional, Sequence, Tuple, Union
 import numpy as np
 from monai.networks.layers import Conv
 
+CONV_TYPES = Union[Conv.CONV, Conv.CONVTRANS]
+
 
 def get_conv_layer(
   spatial_dims: int,
@@ -16,7 +18,7 @@ def get_conv_layer(
   groups: int = 1,
   bias: bool = True,
   is_transposed: bool = False,
-) -> Union[Conv.CONV, Conv.CONVTRANS]:
+) -> CONV_TYPES:
     """get convolutional instance from varied spatial dimensions
 
     :param spatial_dims: number of spatial dimensions - int
@@ -75,9 +77,9 @@ def get_padding(
     :param stride: strides
     :return: int or tuple of ints representing padding values
     """
-    kernel_size = np.atleast_1d(kernel_size)
-    stride = np.atleast_1d(stride)
-    padding = (kernel_size-stride+1) / 2
+    kernel_sizes = np.atleast_1d(kernel_size)
+    strides = np.atleast_1d(stride)
+    padding = (kernel_sizes-strides+1) / 2
     if np.min(padding) < 0:
         raise AssertionError
     padding = tuple(int(p) for p in padding)
@@ -94,11 +96,11 @@ def get_output_padding(
     :param padding: paddings
     :return: int or tuple of ints representing output padding values
     """
-    kernel_size = np.atleast_1d(kernel_size)
-    stride = np.atleast_1d(stride)
-    padding = np.atleast_1d(padding)
+    kernel_sizes = np.atleast_1d(kernel_size)
+    strides = np.atleast_1d(stride)
+    paddings = np.atleast_1d(padding)
     
-    output_padding = 2*padding + stride - kernel_size
+    output_padding = 2*paddings + strides - kernel_sizes
     if np.min(output_padding) < 0:
         raise AssertionError
     output_padding = tuple(int(p) for p in output_padding)
