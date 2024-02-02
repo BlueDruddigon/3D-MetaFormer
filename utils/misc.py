@@ -56,7 +56,8 @@ def ensure_tuple_dims(tup: Any, dims: int) -> Sequence[int]:
         assert len(tup) == dims
         return tuple(tup)
     elif isinstance(tup, int):
-        return to_ntuple(dims)(tup)
+        return tuple(to_ntuple(dims)(tup))
+    raise ValueError
 
 
 def seed_everything(seed: int) -> None:
@@ -74,8 +75,8 @@ class AverageMeter:
         self.reset()
     
     def reset(self) -> None:
-        self.val = 0
-        self.avg = 0
+        self.val: float = 0
+        self.avg: float = 0
         self.count = 0
         self.sum = 0
     
